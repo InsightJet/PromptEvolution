@@ -77,6 +77,9 @@ class EvolutionSession:
         self.is_running = False
         self.gepa_result = None
         self.template_mapping = {}  # Maps {{variableName}} -> actual substituted value
+        self.template_variables = []  # List of variable names found in original prompt
+        self.variable_sections = []  # Extracted variable lines to re-attach after evolution
+        self.seed_prompt_with_markers = None  # Seed prompt with markers for evolution
 
     def log(self, message: str, data: dict = None):
         entry = {"message": message, "data": data or {}}
@@ -95,6 +98,161 @@ def get_litellm_model_string(config: ModelConfig) -> str:
     }
     prefix = provider_map.get(config.provider, f"{config.provider}/")
     return f"{prefix}{config.model}"
+
+
+# ===== TEMPLATE VARIABLE PRESERVATION =====
+# Extract variable lines before evolution, re-attach after
+
+MARKER_PREFIX = "[[TEMPLATE_VAR:"
+MARKER_SUFFIX = "]]"
+
+
+def extract_variable_sections(template: str) -> tuple[str, list[dict]]:
+    """Extract lines/sections containing {{variables}} from the template.
+
+    Strategy: Find lines with {{var}} and extract them along with context.
+    Returns the template without variable sections, and info to re-attach them.
+
+    Returns:
+        tuple: (template_without_vars, list of {var_name, full_line, position})
+    """
+    import re
+
+    lines = template.split('\n')
+    variable_sections = []
+    clean_lines = []
+
+    for i, line in enumerate(lines):
+        vars_in_line = re.findall(r'\{\{(\w+)\}\}', line)
+        if vars_in_line:
+            # This line contains variables - extract it
+            for var in vars_in_line:
+                variable_sections.append({
+                    'var_name': var,
+                    'full_line': line,
+                    'line_index': i,
+                    'position': 'end' if i > len(lines) // 2 else 'start'
+                })
+            # Don't include this line in the clean version
+        else:
+            clean_lines.append(line)
+
+    clean_template = '\n'.join(clean_lines)
+
+    if variable_sections:
+        print(f"[Template] Extracted {len(variable_sections)} variable sections")
+        for vs in variable_sections:
+            print(f"  - {vs['var_name']}: '{vs['full_line'][:50]}...'")
+
+    return clean_template, variable_sections
+
+
+def reattach_variable_sections(evolved_prompt: str, variable_sections: list[dict]) -> str:
+    """Re-attach extracted variable sections to the evolved prompt.
+
+    Appends variable lines at the end (most common pattern for context variables).
+    """
+    if not variable_sections:
+        return evolved_prompt
+
+    result = evolved_prompt.rstrip()
+
+    # Group by unique full_line to avoid duplicates
+    unique_lines = []
+    seen = set()
+    for vs in variable_sections:
+        line = vs['full_line'].strip()  # Remove extra whitespace
+        if line not in seen:
+            unique_lines.append(line)
+            seen.add(line)
+
+    # Append variable lines at the end with clear section marker
+    if unique_lines:
+        result += '\n\n## INPUT DATA\n'
+        for line in unique_lines:
+            result += line + '\n'
+
+    print(f"[Template] Re-attached {len(unique_lines)} variable lines:")
+    for line in unique_lines:
+        print(f"  > {line[:80]}...")
+
+    return result
+
+
+def template_vars_to_markers(template: str) -> tuple[str, list[str]]:
+    """Convert {{variableName}} to [[TEMPLATE_VAR:variableName]] markers.
+
+    Returns:
+        tuple: (template with markers, list of variable names found)
+    """
+    import re
+
+    variables = []
+    result = template
+
+    # Find all {{variableName}} patterns
+    for match in re.finditer(r'\{\{(\w+)\}\}', template):
+        var_name = match.group(1)
+        variables.append(var_name)
+        # Replace with marker
+        result = result.replace('{{' + var_name + '}}', f'{MARKER_PREFIX}{var_name}{MARKER_SUFFIX}')
+
+    if variables:
+        print(f"[Template] Converted variables to markers: {variables}")
+
+    return result, variables
+
+
+def markers_to_template_vars(text: str) -> str:
+    """Convert [[TEMPLATE_VAR:variableName]] markers back to {{variableName}}.
+
+    Returns:
+        Text with markers converted back to template variables
+    """
+    import re
+
+    result = text
+
+    # Find all markers and convert back
+    pattern = re.escape(MARKER_PREFIX) + r'(\w+)' + re.escape(MARKER_SUFFIX)
+
+    for match in re.finditer(pattern, text):
+        var_name = match.group(1)
+        marker = f'{MARKER_PREFIX}{var_name}{MARKER_SUFFIX}'
+        result = result.replace(marker, '{{' + var_name + '}}')
+        print(f"[Template] Restored marker to {{{{var_name}}}}")
+
+    return result
+
+
+def fill_template_with_markers(template: str, data: str) -> str:
+    """Fill template that has markers with sample data.
+
+    Temporarily replaces markers with data for LLM evaluation,
+    but the candidate prompt itself keeps the markers.
+    """
+    import re
+
+    result = template
+
+    # Calculate batchSize from data
+    batch_size = max(1, len(re.findall(r'<[^>]+>', data)))
+    if batch_size == 0:
+        batch_size = len([l for l in data.split('\n') if l.strip()])
+
+    # Replace markers with actual data
+    pattern = re.escape(MARKER_PREFIX) + r'(\w+)' + re.escape(MARKER_SUFFIX)
+
+    for match in re.finditer(pattern, template):
+        var_name = match.group(1)
+        marker = f'{MARKER_PREFIX}{var_name}{MARKER_SUFFIX}'
+
+        if var_name.lower() == 'batchsize':
+            result = result.replace(marker, str(batch_size))
+        else:
+            result = result.replace(marker, data)
+
+    return result
 
 
 def extract_template_mapping(template: str, data: str) -> dict:
@@ -171,23 +329,25 @@ def restore_template_variables(evolved_prompt: str, template_mapping: dict) -> s
 def fill_template(template: str, data: str) -> str:
     """Fill template variables with sample data.
 
-    Supports {{variableName}} syntax. If no variables found,
-    appends data to the template.
+    Supports {{variableName}}, [[TEMPLATE_VAR:variableName]], and {variableName} syntax.
+    If no variables found, appends data to the template.
     """
     import re
 
-    # Find all template variables - support both {{var}} and {var}
+    # Find all template variables - support {{var}}, markers, and {var}
     double_brace_vars = re.findall(r'\{\{(\w+)\}\}', template)
+    marker_vars = re.findall(re.escape(MARKER_PREFIX) + r'(\w+)' + re.escape(MARKER_SUFFIX), template)
     single_brace_vars = re.findall(r'\{(\w+)\}', template)
 
     # Filter out common false positives for single brace (like JSON examples)
     single_brace_vars = [v for v in single_brace_vars if v not in ['id', 'type', 'intent', 'purpose', 'confidence']]
 
-    variables = double_brace_vars or single_brace_vars
+    variables = double_brace_vars or marker_vars or single_brace_vars
+    has_markers = bool(marker_vars)
 
     print(f"[DEBUG fill_template] Template preview: {template[:200]}...")
     print(f"[DEBUG fill_template] Double brace vars: {double_brace_vars}")
-    print(f"[DEBUG fill_template] Single brace vars (filtered): {single_brace_vars}")
+    print(f"[DEBUG fill_template] Marker vars: {marker_vars}")
     print(f"[DEBUG fill_template] Data length: {len(data)}")
 
     if variables:
@@ -198,12 +358,22 @@ def fill_template(template: str, data: str) -> str:
         if batch_size == 0:
             batch_size = len([l for l in data.split('\n') if l.strip()])  # Count non-empty lines
 
+        # Fill {{var}} syntax
         for var in double_brace_vars:
             if var.lower() == 'batchsize':
                 filled = filled.replace('{{' + var + '}}', str(batch_size))
             else:
                 filled = filled.replace('{{' + var + '}}', data)
 
+        # Fill [[TEMPLATE_VAR:var]] markers
+        for var in marker_vars:
+            marker = f'{MARKER_PREFIX}{var}{MARKER_SUFFIX}'
+            if var.lower() == 'batchsize':
+                filled = filled.replace(marker, str(batch_size))
+            else:
+                filled = filled.replace(marker, data)
+
+        # Fill {var} syntax
         for var in single_brace_vars:
             if var not in ['id', 'type', 'intent', 'purpose', 'confidence']:
                 if var.lower() == 'batchsize':
@@ -296,8 +466,14 @@ class LLMJudgeAdapter(GEPAAdapter[TestInput, Trajectory, str]):
                 raise StopIteration("Evolution stopped by user")
 
             try:
+                # Re-attach variable sections before filling template
+                # (they were extracted before evolution to preserve them)
+                prompt_with_vars = system_prompt
+                if self.session.variable_sections:
+                    prompt_with_vars = reattach_variable_sections(system_prompt, self.session.variable_sections)
+
                 # Fill template with sample data and run
-                filled_prompt = fill_template(system_prompt, item.input_text)
+                filled_prompt = fill_template(prompt_with_vars, item.input_text)
 
                 self.session.log(f"Running filled prompt", {
                     "sample_data_preview": item.input_text[:100] + "..." if len(item.input_text) > 100 else item.input_text,
@@ -507,20 +683,31 @@ def run_gepa_evolution(session: EvolutionSession):
             for i, text in enumerate(config.test_inputs)
         ]
 
-        # Extract and store template mapping for later restoration
-        # Use first test input to determine what values will be substituted
+        # STRATEGY: Extract variable lines BEFORE evolution, re-attach AFTER
+        # This ensures {{variables}} are preserved even when GEPA restructures the prompt
+        clean_template, variable_sections = extract_variable_sections(config.seed_prompt)
+        session.variable_sections = variable_sections
+        session.template_variables = [vs['var_name'] for vs in variable_sections]
+
+        if variable_sections:
+            session.log("Extracted variable sections for preservation", {
+                "variables": session.template_variables,
+                "lines_extracted": len(variable_sections)
+            })
+
+        # Extract and store template mapping for fallback restoration
         if config.test_inputs:
             session.template_mapping = extract_template_mapping(
                 config.seed_prompt,
                 config.test_inputs[0]
             )
-            session.log("Template mapping extracted", {
-                "variables": list(session.template_mapping.keys())
-            })
 
-        # Create seed candidate
+        # Create seed candidate WITHOUT variable lines (they'll be re-attached)
+        # But we need to evaluate with variables, so keep original for evaluation
+        session.seed_prompt_with_markers = clean_template
+
         seed_candidate = {
-            "system_prompt": config.seed_prompt
+            "system_prompt": clean_template
         }
 
         # Create custom adapter with LLM-as-Judge
@@ -653,8 +840,29 @@ async def get_evolution_status(session_id: str):
     # Restore template variables in best_candidate
     best_candidate = session.best_candidate
     restored_candidate = None
-    if best_candidate and session.template_mapping:
-        restored_candidate = restore_template_variables(best_candidate, session.template_mapping)
+
+    if best_candidate:
+        # Re-attach extracted variable sections (e.g., "Current context: {{context}}")
+        if session.variable_sections:
+            restored_candidate = reattach_variable_sections(best_candidate, session.variable_sections)
+        else:
+            # Fallback: try marker conversion
+            restored_candidate = markers_to_template_vars(best_candidate)
+
+            # If still no vars and we have template mapping, try value-based restoration
+            if restored_candidate == best_candidate and session.template_mapping:
+                restored_candidate = restore_template_variables(best_candidate, session.template_mapping)
+
+    # Also restore variables in all candidates
+    restored_candidates = []
+    for c in session.candidates:
+        restored_c = dict(c)
+        if c.get("prompt"):
+            if session.variable_sections:
+                restored_c["prompt"] = reattach_variable_sections(c["prompt"], session.variable_sections)
+            else:
+                restored_c["prompt"] = markers_to_template_vars(c["prompt"])
+        restored_candidates.append(restored_c)
 
     return {
         "id": session.id,
@@ -667,7 +875,8 @@ async def get_evolution_status(session_id: str):
         "best_candidate": best_candidate,
         "restored_candidate": restored_candidate,  # With {{variables}} restored
         "template_mapping": session.template_mapping,
-        "candidates": session.candidates,
+        "template_variables": session.template_variables,
+        "candidates": restored_candidates,
     }
 
 
@@ -699,8 +908,29 @@ async def stream_evolution(session_id: str):
             # Restore template variables
             best_candidate = session.best_candidate
             restored_candidate = None
-            if best_candidate and session.template_mapping:
-                restored_candidate = restore_template_variables(best_candidate, session.template_mapping)
+
+            if best_candidate:
+                # Re-attach extracted variable sections
+                if session.variable_sections:
+                    restored_candidate = reattach_variable_sections(best_candidate, session.variable_sections)
+                else:
+                    # Fallback: try marker conversion
+                    restored_candidate = markers_to_template_vars(best_candidate)
+
+                    # If still no vars and we have template mapping, try value-based restoration
+                    if restored_candidate == best_candidate and session.template_mapping:
+                        restored_candidate = restore_template_variables(best_candidate, session.template_mapping)
+
+            # Also restore variables in all candidates
+            restored_candidates = []
+            for c in session.candidates:
+                restored_c = dict(c)
+                if c.get("prompt"):
+                    if session.variable_sections:
+                        restored_c["prompt"] = reattach_variable_sections(c["prompt"], session.variable_sections)
+                    else:
+                        restored_c["prompt"] = markers_to_template_vars(c["prompt"])
+                restored_candidates.append(restored_c)
 
             yield {
                 "event": "status",
@@ -713,7 +943,8 @@ async def stream_evolution(session_id: str):
                     "best_candidate": best_candidate,
                     "restored_candidate": restored_candidate,
                     "template_mapping": session.template_mapping,
-                    "candidates": session.candidates,
+                    "template_variables": session.template_variables,
+                    "candidates": restored_candidates,
                 })
             }
 
