@@ -1,0 +1,2694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GEPA Prompt Evolution + Langfuse</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #e0e0e0;
+        }
+
+        .app-container {
+            display: grid;
+            grid-template-columns: 300px 1fr 400px;
+            grid-template-rows: auto 1fr;
+            min-height: 100vh;
+            gap: 1px;
+            background: rgba(255,255,255,0.1);
+        }
+
+        @media (max-width: 1200px) {
+            .app-container {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto auto auto;
+            }
+        }
+
+        header {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 15px 20px;
+            background: rgba(0,0,0,0.3);
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        header h1 {
+            font-size: 1.5rem;
+            background: linear-gradient(90deg, #00d4ff, #7b2cbf);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* Left Panel - Langfuse Prompts */
+        .left-panel {
+            background: rgba(0,0,0,0.2);
+            padding: 15px;
+            overflow-y: auto;
+            max-height: calc(100vh - 60px);
+        }
+
+        .panel-header {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #00d4ff;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .langfuse-config {
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 15px;
+        }
+
+        .langfuse-config .form-group {
+            margin-bottom: 10px;
+        }
+
+        .langfuse-config label {
+            display: block;
+            font-size: 0.75rem;
+            color: #888;
+            margin-bottom: 4px;
+        }
+
+        .langfuse-config input {
+            width: 100%;
+            padding: 8px 10px;
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 6px;
+            color: #fff;
+            font-size: 0.85rem;
+        }
+
+        .langfuse-config input:focus {
+            outline: none;
+            border-color: #00d4ff;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #00d4ff, #7b2cbf);
+            color: #fff;
+            width: 100%;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 15px rgba(0,212,255,0.3);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+        }
+
+        .btn-success {
+            background: #2ecc71;
+            color: #fff;
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+            color: #fff;
+        }
+
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            margin-bottom: 15px;
+        }
+
+        .tab-btn {
+            padding: 10px 16px;
+            background: transparent;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 500;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .tab-btn:hover {
+            color: #fff;
+        }
+
+        .tab-btn.active {
+            color: #00d4ff;
+            border-bottom-color: #00d4ff;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .main-tab-content {
+            display: none;
+        }
+
+        .main-tab-content.active {
+            display: block;
+        }
+
+        /* Comparison View */
+        .comparison-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .comparison-panel {
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .comparison-header {
+            padding: 8px 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .comparison-header.original {
+            background: rgba(231,76,60,0.2);
+            color: #e74c3c;
+        }
+
+        .comparison-header.evolved {
+            background: rgba(46,204,113,0.2);
+            color: #2ecc71;
+        }
+
+        .comparison-content {
+            padding: 12px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.8rem;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+            color: #e0e0e0;
+        }
+
+        .score-badge {
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .score-badge.original {
+            background: rgba(231,76,60,0.3);
+        }
+
+        .score-badge.evolved {
+            background: rgba(46,204,113,0.3);
+        }
+
+        .improvement-banner {
+            text-align: center;
+            padding: 10px;
+            background: rgba(46,204,113,0.1);
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 0.9rem;
+        }
+
+        .improvement-banner .delta {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #2ecc71;
+        }
+
+        .improvement-banner .delta.negative {
+            color: #e74c3c;
+        }
+
+        /* Diff highlighting */
+        .diff-added {
+            background: rgba(46,204,113,0.3);
+            color: #2ecc71;
+            padding: 1px 3px;
+            border-radius: 3px;
+        }
+
+        .diff-removed {
+            background: rgba(231,76,60,0.3);
+            color: #e74c3c;
+            text-decoration: line-through;
+            padding: 1px 3px;
+            border-radius: 3px;
+        }
+
+        .diff-view {
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            padding: 15px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.8rem;
+            line-height: 1.8;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .diff-legend {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 10px;
+            font-size: 0.8rem;
+        }
+
+        .diff-legend span {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .legend-box {
+            width: 14px;
+            height: 14px;
+            border-radius: 3px;
+        }
+
+        .legend-box.added {
+            background: rgba(46,204,113,0.3);
+            border: 1px solid #2ecc71;
+        }
+
+        .legend-box.removed {
+            background: rgba(231,76,60,0.3);
+            border: 1px solid #e74c3c;
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 0.8rem;
+        }
+
+        .prompts-list {
+            margin-top: 15px;
+        }
+
+        .prompt-item {
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+        }
+
+        .prompt-item:hover {
+            background: rgba(255,255,255,0.1);
+        }
+
+        .prompt-item.selected {
+            border-color: #00d4ff;
+            background: rgba(0,212,255,0.1);
+        }
+
+        .prompt-item .prompt-name {
+            font-weight: 600;
+            color: #fff;
+            margin-bottom: 4px;
+        }
+
+        .prompt-item .prompt-meta {
+            font-size: 0.75rem;
+            color: #888;
+        }
+
+        .prompt-item .prompt-labels {
+            margin-top: 6px;
+        }
+
+        .label-tag {
+            display: inline-block;
+            padding: 2px 8px;
+            background: rgba(0,212,255,0.2);
+            border-radius: 10px;
+            font-size: 0.7rem;
+            color: #00d4ff;
+            margin-right: 4px;
+        }
+
+        .label-tag.production {
+            background: rgba(46,204,113,0.2);
+            color: #2ecc71;
+        }
+
+        /* Center Panel - Evaluation Setup */
+        .center-panel {
+            background: rgba(0,0,0,0.1);
+            padding: 20px;
+            overflow-y: auto;
+            max-height: calc(100vh - 60px);
+        }
+
+        .card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .card h3 {
+            font-size: 1rem;
+            color: #00d4ff;
+            margin-bottom: 15px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            color: #aaa;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 10px 14px;
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            color: #fff;
+            font-size: 0.9rem;
+        }
+
+        .form-group textarea {
+            min-height: 100px;
+            resize: vertical;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.85rem;
+            line-height: 1.5;
+        }
+
+        .form-group textarea#judge-prompt {
+            min-height: 200px;
+        }
+
+        .sample-data-input {
+            width: 100%;
+            min-height: 80px;
+            padding: 10px;
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            color: #fff;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.8rem;
+            resize: vertical;
+        }
+
+        .sample-data-input:focus {
+            outline: none;
+            border-color: #00d4ff;
+        }
+
+        .test-input-item {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+            align-items: flex-start;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #00d4ff;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .model-config {
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+
+        .model-config h4 {
+            font-size: 0.85rem;
+            color: #00d4ff;
+            margin-bottom: 10px;
+        }
+
+        .test-inputs-list {
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+            padding: 10px;
+        }
+
+        .test-input-item {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .test-input-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .test-input-item input {
+            flex: 1;
+        }
+
+        .test-input-item button {
+            background: rgba(231,76,60,0.2);
+            border: none;
+            color: #e74c3c;
+            padding: 0 10px;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        .add-test-input {
+            background: rgba(0,212,255,0.1);
+            border: 1px dashed rgba(0,212,255,0.3);
+            padding: 8px;
+            border-radius: 6px;
+            color: #00d4ff;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 8px;
+            font-size: 0.85rem;
+        }
+
+        /* Right Panel - Results */
+        .right-panel {
+            background: rgba(0,0,0,0.2);
+            padding: 15px;
+            overflow-y: auto;
+            max-height: calc(100vh - 60px);
+        }
+
+        .progress-section {
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .status-badge {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-pending { background: rgba(255,193,7,0.2); color: #ffc107; }
+        .status-running { background: rgba(0,212,255,0.2); color: #00d4ff; }
+        .status-completed { background: rgba(46,204,113,0.2); color: #2ecc71; }
+        .status-error { background: rgba(231,76,60,0.2); color: #e74c3c; }
+        .status-stopped { background: rgba(255,165,0,0.2); color: #ffa500; }
+
+        .progress-bar-container {
+            background: rgba(0,0,0,0.3);
+            border-radius: 6px;
+            height: 16px;
+            overflow: hidden;
+            margin-bottom: 15px;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #00d4ff, #7b2cbf);
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 10px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+        }
+
+        .stat-value {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: #00d4ff;
+        }
+
+        .stat-label {
+            font-size: 0.7rem;
+            color: #888;
+        }
+
+        .logs-container {
+            background: rgba(0,0,0,0.4);
+            border-radius: 8px;
+            padding: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.75rem;
+        }
+
+        .log-entry {
+            padding: 6px 8px;
+            border-left: 2px solid #00d4ff;
+            margin-bottom: 6px;
+            background: rgba(255,255,255,0.02);
+        }
+
+        .log-message { color: #e0e0e0; }
+        .log-data { color: #888; font-size: 0.7rem; margin-top: 3px; }
+
+        /* Results */
+        .result-card {
+            background: rgba(46,204,113,0.1);
+            border: 1px solid rgba(46,204,113,0.3);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .result-card h4 {
+            color: #2ecc71;
+            margin-bottom: 10px;
+            font-size: 0.9rem;
+        }
+
+        .result-prompt {
+            background: rgba(0,0,0,0.3);
+            padding: 12px;
+            border-radius: 8px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.8rem;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .save-section {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .save-section .form-group {
+            margin-bottom: 10px;
+        }
+
+        .candidates-list {
+            margin-top: 15px;
+        }
+
+        .candidate-item {
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+        }
+
+        .candidate-item:hover {
+            background: rgba(0,0,0,0.3);
+        }
+
+        .candidate-item.selected {
+            border: 1px solid #00d4ff;
+        }
+
+        .candidate-score {
+            background: linear-gradient(135deg, #00d4ff, #7b2cbf);
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 0.8rem;
+        }
+
+        .candidate-prompt {
+            flex: 1;
+            margin-right: 10px;
+            font-size: 0.8rem;
+            color: #ccc;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .hidden { display: none !important; }
+
+        .empty-state {
+            text-align: center;
+            padding: 30px;
+            color: #666;
+        }
+
+        .empty-state p {
+            margin-bottom: 10px;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .btn-group .btn {
+            flex: 1;
+        }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.75rem;
+            margin-bottom: 10px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .status-dot.connected { background: #2ecc71; }
+        .status-dot.disconnected { background: #e74c3c; }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <h1>GEPA Prompt Evolution + Langfuse</h1>
+        </header>
+
+        <!-- Left Panel - Langfuse Prompts -->
+        <div class="left-panel">
+            <div class="panel-header">Langfuse Connection</div>
+
+            <div class="langfuse-config">
+                <div class="connection-status">
+                    <span class="status-dot disconnected" id="connection-dot"></span>
+                    <span id="connection-text">Not connected</span>
+                </div>
+
+                <div class="form-group">
+                    <label>Host</label>
+                    <input type="text" id="langfuse-host" value="https://cloud.langfuse.com" placeholder="https://cloud.langfuse.com">
+                </div>
+                <div class="form-group">
+                    <label>Public Key</label>
+                    <input type="text" id="langfuse-public-key" placeholder="pk-lf-...">
+                </div>
+                <div class="form-group">
+                    <label>Secret Key</label>
+                    <input type="password" id="langfuse-secret-key" placeholder="sk-lf-...">
+                </div>
+                <button class="btn btn-primary" onclick="connectLangfuse()">Connect & Load Prompts</button>
+            </div>
+
+            <div class="panel-header" style="margin-top: 20px; display: flex; justify-content: space-between; align-items: center;">
+                <span>Your Prompts</span>
+                <button class="btn btn-success btn-sm" onclick="createNewPrompt()" style="padding: 4px 10px; font-size: 0.75rem;">+ New</button>
+            </div>
+            <div class="prompts-list" id="prompts-list">
+                <div class="empty-state">
+                    <p>Connect to Langfuse to load your prompts, or create a new one</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center Panel - Evaluation Setup -->
+        <div class="center-panel">
+            <div class="tabs" id="main-tabs" style="margin-bottom:15px;">
+                <button class="tab-btn active" onclick="switchMainTab('setup')">Setup</button>
+                <button class="tab-btn" onclick="switchMainTab('compare')">Compare Results</button>
+            </div>
+
+            <!-- Setup Tab -->
+            <div class="main-tab-content active" id="main-tab-setup">
+            <div class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3 style="margin: 0;">Prompt Template</h3>
+                    <button class="btn btn-success btn-sm" onclick="savePromptToLangfuse()" title="Save prompt to Langfuse" id="save-prompt-btn">Save to Langfuse</button>
+                </div>
+                <div class="form-group">
+                    <label>Prompt Name</label>
+                    <input type="text" id="selected-prompt-name" placeholder="Enter prompt name (required for saving)">
+                </div>
+                <div class="form-group">
+                    <label>Template Content <span style="color:#888;font-weight:normal;">(use {{variableName}} for placeholders)</span></label>
+                    <textarea id="seed-prompt" style="min-height:150px;" placeholder="Your prompt template...">Classify these UI components: {{componentDescriptions}}
+
+Output valid JSON array with: id, type, intent, purpose, confidence</textarea>
+                </div>
+                <div id="detected-variables" style="font-size:0.8rem;color:#00d4ff;margin-top:-10px;"></div>
+            </div>
+
+            <div class="card">
+                <h3>Judge Prompt (Y) - Evaluation Criteria</h3>
+                <div class="form-group">
+                    <label>Additional Instructions (optional)</label>
+                    <input type="text" id="judge-instructions" placeholder="e.g., Focus on code quality, check for security issues, ensure professional tone...">
+                </div>
+                <div class="form-group">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <label style="margin: 0;">Judge Prompt</label>
+                        <div style="display: flex; gap: 6px;">
+                            <button class="btn btn-secondary btn-sm" id="generate-judge-btn" onclick="generateJudge()">Generate Judge</button>
+                            <button class="btn btn-success btn-sm" onclick="saveJudgeToLangfuse()" title="Save to Langfuse">Save</button>
+                        </div>
+                    </div>
+                    <textarea id="judge-prompt" placeholder="Define how to evaluate outputs...">You are a critical evaluator. Be strict and specific.
+
+Score based on:
+1. Specificity (0-25): Does it give concrete details, not vague generalizations?
+2. Structure (0-25): Is it well-organized with clear sections?
+3. Accuracy (0-25): Is the information technically correct?
+4. Completeness (0-25): Does it fully answer the question?
+
+Most responses should score 50-70. Only exceptional responses score above 85.
+
+Format:
+SCORE: [number]
+FEEDBACK: [detailed feedback]</textarea>
+                </div>
+            </div>
+
+            <div class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3 style="margin: 0;">Sample Data for Testing</h3>
+                    <button class="btn btn-secondary btn-sm" id="generate-inputs-btn" onclick="generateTestInputs()">Generate Samples</button>
+                </div>
+                <p style="font-size: 0.8rem; color: #888; margin-bottom: 10px;">Sample data to fill template variables (e.g., UI components to classify). Each sample tests the prompt separately.</p>
+                <div class="test-inputs-list" id="test-inputs-list">
+                    <div class="test-input-item">
+                        <textarea class="sample-data-input" placeholder="Paste sample data here...">&lt;button class="ant-btn ant-btn-primary"&gt;Submit&lt;/button&gt;
+&lt;input class="ant-input" placeholder="Enter email"&gt;
+&lt;div class="ant-upload-drag"&gt;Upload File&lt;/div&gt;</textarea>
+                        <button onclick="removeTestInput(this)">&times;</button>
+                    </div>
+                </div>
+                <button class="add-test-input" onclick="addTestInput()">+ Add Sample</button>
+            </div>
+
+            <div class="card">
+                <h3>Model Configuration</h3>
+                <div class="model-config">
+                    <h4>Task Model (runs Prompt X)</h4>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Provider</label>
+                            <select id="task-provider" onchange="updateModelOptions('task')">
+                                <option value="openai">OpenAI</option>
+                                <option value="anthropic">Anthropic</option>
+                                <option value="google">Google</option>
+                                <option value="groq">Groq</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Model</label>
+                            <select id="task-model"></select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>API Key</label>
+                        <input type="password" id="task-api-key" placeholder="sk-...">
+                    </div>
+                </div>
+
+                <div class="model-config">
+                    <h4>Judge Model (runs Prompt Y)</h4>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Provider</label>
+                            <select id="judge-provider" onchange="updateModelOptions('judge')">
+                                <option value="openai">OpenAI</option>
+                                <option value="anthropic">Anthropic</option>
+                                <option value="google">Google</option>
+                                <option value="groq">Groq</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Model</label>
+                            <select id="judge-model"></select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>API Key</label>
+                        <input type="password" id="judge-api-key" placeholder="sk-...">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Max Iterations</label>
+                        <input type="number" id="max-iterations" value="5" min="1" max="20">
+                    </div>
+                    <div class="form-group">
+                        <label>Population Size</label>
+                        <input type="number" id="population-size" value="3" min="2" max="10">
+                    </div>
+                </div>
+            </div>
+
+            <div class="btn-group" style="display: flex; gap: 10px;">
+                <button class="btn btn-primary" id="start-btn" onclick="startEvolution()" style="flex: 1;">Start Evolution</button>
+                <button class="btn btn-danger" id="stop-btn" onclick="stopEvolution()" style="flex: 1; display: none;">Stop Evolution</button>
+            </div>
+            </div><!-- End Setup Tab -->
+
+            <!-- Compare Results Tab -->
+            <div class="main-tab-content" id="main-tab-compare" style="display:none;">
+                <div class="card">
+                    <div class="improvement-banner" id="main-improvement-banner">
+                        <span style="font-size:1rem;">Score improved by </span>
+                        <span class="delta" id="main-compare-delta" style="font-size:1.5rem;">+0</span>
+                        <span style="font-size:1rem;"> points</span>
+                        <div style="font-size:0.9rem;color:#888;margin-top:6px;">
+                            <span id="main-compare-initial">-</span> → <span id="main-compare-best">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="diff-legend" style="margin-bottom:15px;">
+                        <span><div class="legend-box removed"></div> Removed from original</span>
+                        <span><div class="legend-box added"></div> Added in evolved</span>
+                    </div>
+
+                    <h3 style="color:#00d4ff;margin-bottom:15px;">What Changed</h3>
+                    <div class="diff-view" id="main-diff-view" style="max-height:350px;">
+                        <span style="color:#888;">Run an evolution to see the comparison...</span>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 style="color:#888;margin-bottom:15px;">Side-by-Side View</h3>
+                    <div class="comparison-container">
+                        <div class="comparison-panel">
+                            <div class="comparison-header original">
+                                <span>Original Seed Prompt</span>
+                                <span class="score-badge original" id="main-original-score-badge">Score: -</span>
+                            </div>
+                            <div class="comparison-content" id="main-original-prompt-content" style="max-height:250px;">-</div>
+                        </div>
+                        <div class="comparison-panel">
+                            <div class="comparison-header evolved">
+                                <span>Evolved Best Prompt</span>
+                                <span class="score-badge evolved" id="main-evolved-score-badge">Score: -</span>
+                            </div>
+                            <div class="comparison-content" id="main-evolved-prompt-content" style="max-height:250px;">-</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card" id="template-warning-card" style="display:none;background:rgba(231,76,60,0.1);border:1px solid rgba(231,76,60,0.3);">
+                    <h4 style="color:#e74c3c;margin-bottom:10px;">Template Variables Not Restored</h4>
+                    <p style="font-size:0.85rem;color:#ccc;margin-bottom:10px;">
+                        The evolved prompt may not contain all template variables (like <code style="color:#00d4ff;">{{variableName}}</code>).
+                        You may need to manually add them back before using in production.
+                    </p>
+                    <p style="font-size:0.8rem;color:#888;">
+                        Original template had: <span id="original-var-count">0</span> variables.
+                        Evolved prompt has: <span id="evolved-var-count">0</span> variables.
+                    </p>
+                </div>
+
+                <div class="card">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
+                        <h3 style="color:#2ecc71;margin:0;">Save Evolved Prompt to Langfuse</h3>
+                        <button class="btn btn-secondary btn-sm" onclick="editEvolvedPrompt()">Edit Prompt</button>
+                    </div>
+                    <div class="form-group" id="evolved-prompt-edit-section" style="display:none;">
+                        <label>Evolved Prompt (editable)</label>
+                        <textarea id="evolved-prompt-editable" style="min-height:150px;font-family:Monaco,Menlo,monospace;font-size:0.85rem;"></textarea>
+                        <button class="btn btn-primary btn-sm" onclick="saveEditedPrompt()" style="margin-top:8px;">Apply Changes</button>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;">
+                        <div class="form-group">
+                            <label>Save as (prompt name)</label>
+                            <input type="text" id="main-save-prompt-name" placeholder="my-optimized-prompt">
+                        </div>
+                        <div class="form-group">
+                            <label>Labels</label>
+                            <input type="text" id="main-save-prompt-labels" value="optimized, gepa" placeholder="optimized, production">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Commit Message</label>
+                        <input type="text" id="main-save-commit-message" placeholder="Auto-generated with improvement details if left empty">
+                    </div>
+                    <button class="btn btn-success" onclick="saveFromMainCompareTab()" style="width:100%;">Save to Langfuse</button>
+                </div>
+            </div><!-- End Compare Tab -->
+        </div>
+
+        <!-- Right Panel - Results -->
+        <div class="right-panel">
+            <div class="panel-header">Evolution Progress & Results</div>
+
+            <div class="progress-section" id="progress-section">
+                <div class="progress-header">
+                    <span>Progress</span>
+                    <span class="status-badge status-pending" id="status-badge">Ready</span>
+                </div>
+
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="progress-bar" style="width: 0%">0%</div>
+                </div>
+
+                <div class="stats-row">
+                    <div class="stat-item">
+                        <div class="stat-value" id="stat-iteration">0/<span id="stat-max-iterations">0</span></div>
+                        <div class="stat-label">Iteration</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="stat-score">0</div>
+                        <div class="stat-label">Best Score</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="stat-improvement" style="color:#2ecc71;">-</div>
+                        <div class="stat-label">Improvement</div>
+                    </div>
+                </div>
+                <div class="score-detail" id="score-detail" style="text-align:center;font-size:0.85rem;color:#888;margin-bottom:15px;display:none;">
+                    <span id="initial-score">-</span> <span style="color:#00d4ff;">→</span> <span id="best-score-display">-</span>
+                </div>
+
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+                    <span style="font-size:0.8rem;color:#888;">Logs</span>
+                    <button class="btn btn-secondary btn-sm" onclick="copyLogs()" style="padding:4px 8px;font-size:0.7rem;">Copy</button>
+                </div>
+                <div class="logs-container" id="logs-container">
+                    <div class="log-entry">
+                        <div class="log-message">Ready to start evolution...</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="result-card hidden" id="results-section">
+                <div class="tabs">
+                    <button class="tab-btn active" onclick="switchTab('best')">Best Prompt</button>
+                    <button class="tab-btn" onclick="switchTab('compare')">Compare</button>
+                </div>
+
+                <!-- Best Prompt Tab -->
+                <div class="tab-content active" id="tab-best">
+                    <h4 style="color:#2ecc71;margin-bottom:10px;">Best Optimized Prompt</h4>
+                    <div class="result-prompt" id="best-prompt">-</div>
+
+                    <div class="save-section">
+                        <div class="form-group">
+                            <label>Save as (prompt name)</label>
+                            <input type="text" id="save-prompt-name" placeholder="my-optimized-prompt">
+                        </div>
+                        <div class="form-group">
+                            <label>Labels</label>
+                            <input type="text" id="save-prompt-labels" value="optimized, gepa" placeholder="optimized, production">
+                        </div>
+                        <div class="form-group">
+                            <label>Commit Message</label>
+                            <input type="text" id="save-commit-message" placeholder="Optimized with GEPA">
+                        </div>
+                        <button class="btn btn-success" onclick="saveToLangfuse()">Save to Langfuse</button>
+                    </div>
+                </div>
+
+                <!-- Compare Tab -->
+                <div class="tab-content" id="tab-compare">
+                    <div class="improvement-banner" id="improvement-banner">
+                        Score improved by <span class="delta" id="compare-delta">+0</span> points
+                        <div style="font-size:0.8rem;color:#888;margin-top:4px;">
+                            <span id="compare-initial">0</span> → <span id="compare-best">0</span>
+                        </div>
+                    </div>
+
+                    <div class="diff-legend">
+                        <span><div class="legend-box removed"></div> Removed from original</span>
+                        <span><div class="legend-box added"></div> Added in evolved</span>
+                    </div>
+
+                    <h4 style="color:#00d4ff;margin-bottom:10px;font-size:0.9rem;">What Changed:</h4>
+                    <div class="diff-view" id="diff-view">-</div>
+
+                    <div style="margin-top:20px;">
+                        <h4 style="color:#888;margin-bottom:10px;font-size:0.85rem;">Side-by-Side View</h4>
+                        <div class="comparison-container">
+                            <div class="comparison-panel">
+                                <div class="comparison-header original">
+                                    <span>Original Seed Prompt</span>
+                                    <span class="score-badge original" id="original-score-badge">Score: -</span>
+                                </div>
+                                <div class="comparison-content" id="original-prompt-content">-</div>
+                            </div>
+                            <div class="comparison-panel">
+                                <div class="comparison-header evolved">
+                                    <span>Evolved Best Prompt</span>
+                                    <span class="score-badge evolved" id="evolved-score-badge">Score: -</span>
+                                </div>
+                                <div class="comparison-content" id="evolved-prompt-content">-</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="save-section" style="margin-top:20px;padding-top:15px;border-top:1px solid rgba(255,255,255,0.1);">
+                        <h4 style="color:#2ecc71;margin-bottom:10px;font-size:0.9rem;">Save Evolved Prompt to Langfuse</h4>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                            <div class="form-group">
+                                <label>Save as (prompt name)</label>
+                                <input type="text" id="compare-save-prompt-name" placeholder="my-optimized-prompt">
+                            </div>
+                            <div class="form-group">
+                                <label>Labels</label>
+                                <input type="text" id="compare-save-prompt-labels" value="optimized, gepa" placeholder="optimized, production">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Commit Message</label>
+                            <input type="text" id="compare-save-commit-message" placeholder="Optimized with GEPA - improved score by X points">
+                        </div>
+                        <button class="btn btn-success" onclick="saveFromCompareTab()">Save to Langfuse</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="candidates-list" id="candidates-list">
+                <!-- Populated dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const modelOptions = {
+            openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
+            anthropic: ['claude-opus-4-20250514', 'claude-sonnet-4-20250514', 'claude-3-5-sonnet-20241022', 'claude-3-haiku-20240307'],
+            google: ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-pro'],
+            groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'llama3-70b-8192', 'gemma2-9b-it']
+        };
+
+        let currentSessionId = null;
+        let eventSource = null;
+        let langfuseConnected = false;
+        let selectedPrompt = null;
+        let currentSeedPrompt = null;  // Store seed prompt for comparison
+        let currentInitialScore = null;
+        let currentBestScore = null;
+        let currentSampleData = null;  // Store the sample data used for evolution
+
+        // ===== TEMPLATE RESTORATION =====
+
+        function restoreTemplateVariables(evolvedPrompt, seedPrompt) {
+            if (!seedPrompt || !evolvedPrompt) return evolvedPrompt;
+
+            // Extract template variables from the seed prompt
+            const varRegex = /\{\{(\w+)\}\}/g;
+            let match;
+            const templateVars = [];
+
+            while ((match = varRegex.exec(seedPrompt)) !== null) {
+                templateVars.push({
+                    name: match[1],
+                    placeholder: match[0]
+                });
+            }
+
+            if (templateVars.length === 0) return evolvedPrompt;
+
+            let restoredPrompt = evolvedPrompt;
+
+            // Get the sample data that was actually used
+            const samples = currentSampleData || getTestInputs();
+            const firstSample = samples[0] || '';
+
+            // Calculate batchSize from sample data
+            const htmlTags = (firstSample.match(/<[^>]+>/g) || []).length;
+            const lines = firstSample.split('\n').filter(l => l.trim()).length;
+            const batchSize = Math.max(1, htmlTags > 0 ? Math.ceil(htmlTags / 2) : lines);
+
+            console.log('[Template Restore] Variables found:', templateVars.map(v => v.name));
+            console.log('[Template Restore] Batch size:', batchSize);
+            console.log('[Template Restore] Sample data length:', firstSample.length);
+
+            for (const varInfo of templateVars) {
+                const { name, placeholder } = varInfo;
+
+                if (name.toLowerCase() === 'batchsize') {
+                    // Replace numbers that likely represent batch size
+                    const patterns = [
+                        new RegExp(`(\\D)${batchSize}(\\s+(?:UI|component|item|element))`, 'gi'),
+                        new RegExp(`(Classify\\s+)${batchSize}(\\s)`, 'gi'),
+                        new RegExp(`(following\\s+)${batchSize}(\\s)`, 'gi'),
+                        new RegExp(`(analyze\\s+)${batchSize}(\\s)`, 'gi'),
+                        new RegExp(`(process\\s+)${batchSize}(\\s)`, 'gi'),
+                        new RegExp(`(evaluate\\s+)${batchSize}(\\s)`, 'gi'),
+                    ];
+
+                    for (const pattern of patterns) {
+                        restoredPrompt = restoredPrompt.replace(pattern, `$1${placeholder}$2`);
+                    }
+
+                    // Handle case where GEPA removed the number entirely
+                    // e.g., "Classify UI components" should become "Classify {{batchSize}} UI components"
+                    if (!restoredPrompt.includes(placeholder)) {
+                        // Try multiple patterns for inserting batchSize
+                        const insertPatterns = [
+                            { regex: /(Classify\s+)(UI\s+components)/gi, replace: `$1${placeholder} $2` },
+                            { regex: /(Classify\s+)(the\s+following\s+)/gi, replace: `$1${placeholder} $2` },
+                            { regex: /(Classify\s+)(these\s+)/gi, replace: `$1${placeholder} $2` },
+                            { regex: /(Analyze\s+)(UI\s+components)/gi, replace: `$1${placeholder} $2` },
+                            { regex: /(Process\s+)(UI\s+components)/gi, replace: `$1${placeholder} $2` },
+                            { regex: /(Categorize\s+)(UI\s+components)/gi, replace: `$1${placeholder} $2` },
+                            { regex: /(TASK:\s*Classify\s+)(UI\s+components)/gi, replace: `$1${placeholder} $2` },
+                        ];
+
+                        for (const { regex, replace } of insertPatterns) {
+                            if (!restoredPrompt.includes(placeholder)) {
+                                restoredPrompt = restoredPrompt.replace(regex, replace);
+                            }
+                        }
+                    }
+
+                    // Final fallback: look for "TASK:" section and insert after "Classify"
+                    if (!restoredPrompt.includes(placeholder)) {
+                        restoredPrompt = restoredPrompt.replace(
+                            /(TASK:\s*[A-Za-z]+\s+)/i,
+                            `$1${placeholder} `
+                        );
+                        console.log('[Template Restore] Used TASK fallback for batchSize');
+                    }
+                } else {
+                    // For content variables like componentDescriptions, input, etc.
+                    // Try multiple strategies to find and replace the sample data
+                    let restored = false;
+
+                    // Strategy 1: Exact match
+                    if (!restored && firstSample && restoredPrompt.includes(firstSample)) {
+                        restoredPrompt = restoredPrompt.replace(firstSample, placeholder);
+                        console.log('[Template Restore] Exact match found for', name);
+                        restored = true;
+                    }
+
+                    // Strategy 2: Match trimmed version
+                    if (!restored) {
+                        const trimmedSample = firstSample.trim();
+                        if (trimmedSample && restoredPrompt.includes(trimmedSample)) {
+                            restoredPrompt = restoredPrompt.replace(trimmedSample, placeholder);
+                            console.log('[Template Restore] Trimmed match found for', name);
+                            restored = true;
+                        }
+                    }
+
+                    // Strategy 3: Section-based restoration (most reliable for GEPA rewrites)
+                    // GEPA often preserves section headers but rewrites content
+                    if (!restored) {
+                        const sectionPatterns = [
+                            /COMPONENTS?\s*:/i,
+                            /INPUT\s*:/i,
+                            /DATA\s*:/i,
+                            /CONTENT\s*:/i,
+                            /ELEMENTS?\s*:/i,
+                            /HTML\s*:/i,
+                            /ITEMS?\s*:/i,
+                        ];
+
+                        // Find which section contains the placeholder in seed prompt
+                        let sectionHeader = null;
+                        for (const pattern of sectionPatterns) {
+                            const match = seedPrompt.match(pattern);
+                            if (match) {
+                                const headerIdx = seedPrompt.indexOf(match[0]);
+                                const placeholderIdx = seedPrompt.indexOf(placeholder);
+                                if (placeholderIdx > headerIdx) {
+                                    sectionHeader = match[0];
+                                    console.log('[Template Restore] Found section header:', sectionHeader, 'for variable', name);
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (sectionHeader) {
+                            const escapedHeader = sectionHeader.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                            const evolvedMatch = restoredPrompt.match(new RegExp(escapedHeader, 'i'));
+                            if (evolvedMatch) {
+                                const headerIdx = restoredPrompt.indexOf(evolvedMatch[0]);
+                                const afterHeader = restoredPrompt.substring(headerIdx + evolvedMatch[0].length);
+
+                                // Find the next section or end
+                                const nextSectionMatch = afterHeader.match(/\n\s*[A-Z][A-Z\s]*:/);
+                                let endIdx;
+
+                                if (nextSectionMatch) {
+                                    endIdx = afterHeader.indexOf(nextSectionMatch[0]);
+                                } else {
+                                    endIdx = afterHeader.length;
+                                }
+
+                                if (endIdx > 0) {
+                                    restoredPrompt = restoredPrompt.substring(0, headerIdx + evolvedMatch[0].length) +
+                                                    '\n' + placeholder +
+                                                    (nextSectionMatch ? afterHeader.substring(endIdx) : '');
+                                    console.log('[Template Restore] Section-based restoration for', name);
+                                    restored = true;
+                                }
+                            }
+                        }
+                    }
+
+                    // Strategy 4: Look for HTML-like content blocks
+                    if (!restored && firstSample.includes('<')) {
+                        const htmlBlockRegex = /(<[^>]+>[\s\S]*?<\/[^>]+>|<[^>]+\s*\/?>)(\s*(<[^>]+>[\s\S]*?<\/[^>]+>|<[^>]+\s*\/?>))*/g;
+                        const htmlBlocks = restoredPrompt.match(htmlBlockRegex);
+
+                        if (htmlBlocks) {
+                            for (const block of htmlBlocks) {
+                                const sampleElements = firstSample.match(/<[^>]+>/g) || [];
+                                let matchCount = 0;
+                                for (const elem of sampleElements) {
+                                    if (block.includes(elem)) matchCount++;
+                                }
+                                if (matchCount >= sampleElements.length * 0.5) {
+                                    restoredPrompt = restoredPrompt.replace(block, placeholder);
+                                    console.log('[Template Restore] HTML block match found for', name);
+                                    restored = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    // Strategy 5: Line-by-line matching
+                    if (!restored) {
+                        const sampleLines = firstSample.split('\n').map(l => l.trim()).filter(l => l);
+                        if (sampleLines.length > 0) {
+                            const firstLine = sampleLines[0];
+                            const lastLine = sampleLines[sampleLines.length - 1];
+
+                            const firstIdx = restoredPrompt.indexOf(firstLine);
+                            const lastIdx = restoredPrompt.lastIndexOf(lastLine);
+
+                            if (firstIdx !== -1 && lastIdx !== -1 && lastIdx >= firstIdx) {
+                                const blockToReplace = restoredPrompt.substring(firstIdx, lastIdx + lastLine.length);
+                                restoredPrompt = restoredPrompt.replace(blockToReplace, placeholder);
+                                console.log('[Template Restore] Line-by-line match found for', name);
+                                restored = true;
+                            }
+                        }
+                    }
+
+                    // Strategy 6: Fallback - find section by name and replace content
+                    if (!restored) {
+                        console.warn('[Template Restore] Trying fallback for', name);
+                        const lowerName = name.toLowerCase();
+                        let insertPattern = null;
+
+                        if (lowerName.includes('component') || lowerName.includes('element') || lowerName.includes('html')) {
+                            insertPattern = /(COMPONENTS?\s*:)/i;
+                        } else if (lowerName.includes('input') || lowerName.includes('data')) {
+                            insertPattern = /(INPUT\s*:|DATA\s*:)/i;
+                        } else if (lowerName.includes('description')) {
+                            insertPattern = /(COMPONENTS?\s*:|DESCRIPTION\s*:|CONTENT\s*:)/i;
+                        }
+
+                        if (insertPattern) {
+                            const match = restoredPrompt.match(insertPattern);
+                            if (match) {
+                                const headerIdx = restoredPrompt.indexOf(match[0]);
+                                const afterHeader = restoredPrompt.substring(headerIdx + match[0].length);
+                                const nextSection = afterHeader.match(/\n\s*[A-Z][A-Z\s]*:/);
+
+                                if (nextSection) {
+                                    const endIdx = afterHeader.indexOf(nextSection[0]);
+                                    restoredPrompt = restoredPrompt.substring(0, headerIdx + match[0].length) +
+                                                    '\n' + placeholder +
+                                                    afterHeader.substring(endIdx);
+                                } else {
+                                    restoredPrompt = restoredPrompt.substring(0, headerIdx + match[0].length) +
+                                                    '\n' + placeholder;
+                                }
+                                console.log('[Template Restore] Fallback insertion for', name);
+                                restored = true;
+                            }
+                        }
+                    }
+
+                    if (!restored) {
+                        console.warn('[Template Restore] Failed to restore variable:', name);
+                    }
+                }
+            }
+
+            // Check if restoration was successful
+            const restoredVars = (restoredPrompt.match(/\{\{\w+\}\}/g) || []).length;
+            const originalVars = templateVars.length;
+
+            if (restoredVars < originalVars) {
+                console.warn('[Template Restore] Could not restore all variables. Original:', originalVars, 'Restored:', restoredVars);
+                console.log('[Template Restore] Original prompt had these vars:', templateVars.map(v => v.name));
+            } else {
+                console.log('[Template Restore] Successfully restored all', restoredVars, 'template variables');
+            }
+
+            return restoredPrompt;
+        }
+
+        // Check if prompt needs template variables restored (for display purposes)
+        function needsTemplateRestoration(prompt, seedPrompt) {
+            const seedVars = (seedPrompt.match(/\{\{\w+\}\}/g) || []).length;
+            const promptVars = (prompt.match(/\{\{\w+\}\}/g) || []).length;
+            return seedVars > 0 && promptVars < seedVars;
+        }
+
+        // Show/hide template warning
+        function updateTemplateWarning(restoredPrompt, seedPrompt) {
+            const seedVars = (seedPrompt.match(/\{\{\w+\}\}/g) || []).length;
+            const promptVars = (restoredPrompt.match(/\{\{\w+\}\}/g) || []).length;
+
+            const warningCard = document.getElementById('template-warning-card');
+            document.getElementById('original-var-count').textContent = seedVars;
+            document.getElementById('evolved-var-count').textContent = promptVars;
+
+            if (seedVars > 0 && promptVars < seedVars) {
+                warningCard.style.display = 'block';
+            } else {
+                warningCard.style.display = 'none';
+            }
+        }
+
+        // Edit evolved prompt
+        function editEvolvedPrompt() {
+            const editSection = document.getElementById('evolved-prompt-edit-section');
+            const textarea = document.getElementById('evolved-prompt-editable');
+            const currentPrompt = document.getElementById('main-evolved-prompt-content').textContent;
+
+            textarea.value = currentPrompt;
+            editSection.style.display = editSection.style.display === 'none' ? 'block' : 'none';
+        }
+
+        // Save edited prompt
+        function saveEditedPrompt() {
+            const editedPrompt = document.getElementById('evolved-prompt-editable').value;
+
+            // Update all displays
+            document.getElementById('main-evolved-prompt-content').textContent = editedPrompt;
+            document.getElementById('evolved-prompt-content').textContent = editedPrompt;
+            document.getElementById('best-prompt').textContent = editedPrompt;
+
+            // Re-render diff with edited prompt
+            const diffHtml = renderDiff(currentSeedPrompt, editedPrompt);
+            document.getElementById('main-diff-view').innerHTML = diffHtml;
+            document.getElementById('diff-view').innerHTML = diffHtml;
+
+            // Update warning
+            updateTemplateWarning(editedPrompt, currentSeedPrompt);
+
+            // Hide edit section
+            document.getElementById('evolved-prompt-edit-section').style.display = 'none';
+
+            alert('Prompt updated! The diff view and all displays have been refreshed.');
+        }
+
+        // ===== DIFF FUNCTIONS =====
+
+        function computeDiff(original, evolved) {
+            // Simple word-level diff
+            const originalWords = original.split(/(\s+)/);
+            const evolvedWords = evolved.split(/(\s+)/);
+
+            // Use Longest Common Subsequence approach for better diff
+            const lcs = computeLCS(originalWords, evolvedWords);
+
+            let result = [];
+            let origIdx = 0;
+            let evolIdx = 0;
+            let lcsIdx = 0;
+
+            while (origIdx < originalWords.length || evolIdx < evolvedWords.length) {
+                if (lcsIdx < lcs.length &&
+                    origIdx < originalWords.length &&
+                    evolIdx < evolvedWords.length &&
+                    originalWords[origIdx] === lcs[lcsIdx] &&
+                    evolvedWords[evolIdx] === lcs[lcsIdx]) {
+                    // Common word
+                    result.push({ type: 'same', text: lcs[lcsIdx] });
+                    origIdx++;
+                    evolIdx++;
+                    lcsIdx++;
+                } else if (origIdx < originalWords.length &&
+                           (lcsIdx >= lcs.length || originalWords[origIdx] !== lcs[lcsIdx])) {
+                    // Word removed from original
+                    if (originalWords[origIdx].trim()) {
+                        result.push({ type: 'removed', text: originalWords[origIdx] });
+                    } else {
+                        result.push({ type: 'same', text: originalWords[origIdx] });
+                    }
+                    origIdx++;
+                } else if (evolIdx < evolvedWords.length) {
+                    // Word added in evolved
+                    if (evolvedWords[evolIdx].trim()) {
+                        result.push({ type: 'added', text: evolvedWords[evolIdx] });
+                    } else {
+                        result.push({ type: 'same', text: evolvedWords[evolIdx] });
+                    }
+                    evolIdx++;
+                }
+            }
+
+            return result;
+        }
+
+        function computeLCS(arr1, arr2) {
+            const m = arr1.length;
+            const n = arr2.length;
+            const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+
+            for (let i = 1; i <= m; i++) {
+                for (let j = 1; j <= n; j++) {
+                    if (arr1[i - 1] === arr2[j - 1]) {
+                        dp[i][j] = dp[i - 1][j - 1] + 1;
+                    } else {
+                        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+                    }
+                }
+            }
+
+            // Backtrack to find LCS
+            let lcs = [];
+            let i = m, j = n;
+            while (i > 0 && j > 0) {
+                if (arr1[i - 1] === arr2[j - 1]) {
+                    lcs.unshift(arr1[i - 1]);
+                    i--;
+                    j--;
+                } else if (dp[i - 1][j] > dp[i][j - 1]) {
+                    i--;
+                } else {
+                    j--;
+                }
+            }
+
+            return lcs;
+        }
+
+        function renderDiff(original, evolved) {
+            if (!original || !evolved) return '-';
+            if (original === evolved) return '<span style="color:#888;">No changes - prompts are identical</span>';
+
+            const diff = computeDiff(original, evolved);
+
+            let html = '';
+            for (const part of diff) {
+                const text = escapeHtml(part.text);
+                if (part.type === 'added') {
+                    html += `<span class="diff-added">${text}</span>`;
+                } else if (part.type === 'removed') {
+                    html += `<span class="diff-removed">${text}</span>`;
+                } else {
+                    html += text;
+                }
+            }
+
+            return html;
+        }
+
+        // ===== TAB FUNCTIONS =====
+
+        function switchTab(tabName) {
+            // Update tab buttons (for results section tabs)
+            const resultsTabs = document.getElementById('results-section');
+            if (resultsTabs) {
+                resultsTabs.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+                const targetBtn = resultsTabs.querySelector(`.tab-btn[onclick="switchTab('${tabName}')"]`);
+                if (targetBtn) targetBtn.classList.add('active');
+            }
+
+            // Update tab content
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+        }
+
+        function switchMainTab(tabName) {
+            // Update main tab buttons
+            const mainTabs = document.getElementById('main-tabs');
+            mainTabs.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            mainTabs.querySelector(`.tab-btn[onclick="switchMainTab('${tabName}')"]`).classList.add('active');
+
+            // Update main tab content
+            document.querySelectorAll('.main-tab-content').forEach(content => {
+                content.classList.remove('active');
+                content.style.display = 'none';
+            });
+            const targetTab = document.getElementById(`main-tab-${tabName}`);
+            targetTab.classList.add('active');
+            targetTab.style.display = 'block';
+        }
+
+        function updateComparisonView(seedPrompt, bestPrompt, initialScore, bestScore) {
+            // Store for later use
+            currentSeedPrompt = seedPrompt;
+            currentInitialScore = initialScore;
+            currentBestScore = bestScore;
+
+            // Restore template variables in the evolved prompt
+            const restoredBestPrompt = restoreTemplateVariables(bestPrompt, seedPrompt);
+
+            const delta = (bestScore || 0) - (initialScore || 0);
+            const diffHtml = renderDiff(seedPrompt, restoredBestPrompt);
+
+            // Update MAIN compare tab (center panel)
+            document.getElementById('main-diff-view').innerHTML = diffHtml;
+            document.getElementById('main-original-prompt-content').textContent = seedPrompt || '-';
+            document.getElementById('main-original-score-badge').textContent = `Score: ${initialScore ? initialScore.toFixed(1) : '-'}`;
+            document.getElementById('main-evolved-prompt-content').textContent = restoredBestPrompt || '-';
+            document.getElementById('main-evolved-score-badge').textContent = `Score: ${bestScore ? bestScore.toFixed(1) : '-'}`;
+
+            const mainDeltaEl = document.getElementById('main-compare-delta');
+            mainDeltaEl.textContent = delta >= 0 ? `+${delta.toFixed(1)}` : delta.toFixed(1);
+            mainDeltaEl.className = delta >= 0 ? 'delta' : 'delta negative';
+            document.getElementById('main-compare-initial').textContent = initialScore ? initialScore.toFixed(1) : '-';
+            document.getElementById('main-compare-best').textContent = bestScore ? bestScore.toFixed(1) : '-';
+
+            const mainBanner = document.getElementById('main-improvement-banner');
+            if (delta > 0) {
+                mainBanner.style.background = 'rgba(46,204,113,0.1)';
+            } else if (delta < 0) {
+                mainBanner.style.background = 'rgba(231,76,60,0.1)';
+            } else {
+                mainBanner.style.background = 'rgba(255,255,255,0.05)';
+            }
+
+            // Update right panel compare tab (smaller version)
+            document.getElementById('diff-view').innerHTML = diffHtml;
+            document.getElementById('original-prompt-content').textContent = seedPrompt || '-';
+            document.getElementById('original-score-badge').textContent = `Score: ${initialScore ? initialScore.toFixed(1) : '-'}`;
+            document.getElementById('evolved-prompt-content').textContent = restoredBestPrompt || '-';
+            document.getElementById('evolved-score-badge').textContent = `Score: ${bestScore ? bestScore.toFixed(1) : '-'}`;
+
+            const deltaEl = document.getElementById('compare-delta');
+            if (deltaEl) {
+                deltaEl.textContent = delta >= 0 ? `+${delta.toFixed(1)}` : delta.toFixed(1);
+                deltaEl.className = delta >= 0 ? 'delta' : 'delta negative';
+            }
+
+            const compareInitial = document.getElementById('compare-initial');
+            const compareBest = document.getElementById('compare-best');
+            if (compareInitial) compareInitial.textContent = initialScore ? initialScore.toFixed(1) : '-';
+            if (compareBest) compareBest.textContent = bestScore ? bestScore.toFixed(1) : '-';
+
+            const banner = document.getElementById('improvement-banner');
+            if (banner) {
+                if (delta > 0) {
+                    banner.style.background = 'rgba(46,204,113,0.1)';
+                    banner.innerHTML = `Score improved by <span class="delta" id="compare-delta">+${delta.toFixed(1)}</span> points
+                        <div style="font-size:0.8rem;color:#888;margin-top:4px;">
+                            <span id="compare-initial">${initialScore ? initialScore.toFixed(1) : '-'}</span> → <span id="compare-best">${bestScore ? bestScore.toFixed(1) : '-'}</span>
+                        </div>`;
+                } else if (delta < 0) {
+                    banner.style.background = 'rgba(231,76,60,0.1)';
+                    banner.innerHTML = `Score decreased by <span class="delta negative" id="compare-delta">${delta.toFixed(1)}</span> points
+                        <div style="font-size:0.8rem;color:#888;margin-top:4px;">
+                            <span id="compare-initial">${initialScore ? initialScore.toFixed(1) : '-'}</span> → <span id="compare-best">${bestScore ? bestScore.toFixed(1) : '-'}</span>
+                        </div>`;
+                } else {
+                    banner.style.background = 'rgba(255,255,255,0.05)';
+                    banner.innerHTML = `No score change
+                        <div style="font-size:0.8rem;color:#888;margin-top:4px;">
+                            Score: <span id="compare-best">${bestScore ? bestScore.toFixed(1) : '-'}</span>
+                        </div>`;
+                }
+            }
+
+            // Check if template variables were restored and show warning if needed
+            updateTemplateWarning(restoredBestPrompt, seedPrompt);
+
+            // Auto-switch to Compare Results tab when results are ready
+            switchMainTab('compare');
+        }
+
+        // ===== LANGFUSE FUNCTIONS =====
+
+        function getLangfuseConfig() {
+            return {
+                host: document.getElementById('langfuse-host').value,
+                public_key: document.getElementById('langfuse-public-key').value,
+                secret_key: document.getElementById('langfuse-secret-key').value
+            };
+        }
+
+        async function connectLangfuse() {
+            const config = getLangfuseConfig();
+
+            if (!config.public_key || !config.secret_key) {
+                alert('Please enter Langfuse credentials');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/langfuse/prompts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to connect');
+                }
+
+                const data = await response.json();
+                langfuseConnected = true;
+
+                // Update connection status
+                document.getElementById('connection-dot').className = 'status-dot connected';
+                document.getElementById('connection-text').textContent = 'Connected';
+
+                // Update button to show refresh
+                const connectBtn = document.querySelector('.langfuse-config .btn-primary');
+                connectBtn.textContent = 'Refresh Prompts';
+
+                // Render prompts list
+                renderPromptsList(data.data || []);
+
+                saveConfig();
+            } catch (error) {
+                console.error('Langfuse connection error:', error);
+                alert('Failed to connect to Langfuse: ' + error.message);
+
+                document.getElementById('connection-dot').className = 'status-dot disconnected';
+                document.getElementById('connection-text').textContent = 'Connection failed';
+            }
+        }
+
+        function renderPromptsList(prompts) {
+            const list = document.getElementById('prompts-list');
+
+            if (!prompts || prompts.length === 0) {
+                list.innerHTML = '<div class="empty-state"><p>No prompts found</p></div>';
+                return;
+            }
+
+            list.innerHTML = prompts.map(p => `
+                <div class="prompt-item" data-name="${escapeHtml(p.name)}" onclick="selectPrompt('${escapeHtml(p.name)}')">
+                    <div class="prompt-name">${escapeHtml(p.name)}</div>
+                    <div class="prompt-meta">v${p.lastVersion || '?'} · ${p.type || 'text'}</div>
+                    <div class="prompt-labels">
+                        ${(p.labels || []).map(l => `<span class="label-tag ${l === 'production' ? 'production' : ''}">${escapeHtml(l)}</span>`).join('')}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function selectPrompt(name) {
+            // Highlight selected
+            document.querySelectorAll('.prompt-item').forEach(el => el.classList.remove('selected'));
+            document.querySelector(`.prompt-item[data-name="${name}"]`)?.classList.add('selected');
+
+            // Fetch full prompt
+            try {
+                const config = getLangfuseConfig();
+                const response = await fetch(`/api/langfuse/prompts/${encodeURIComponent(name)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+
+                if (!response.ok) throw new Error('Failed to fetch prompt');
+
+                const prompt = await response.json();
+                selectedPrompt = prompt;
+
+                // Fill in the form
+                document.getElementById('selected-prompt-name').value = prompt.name;
+                document.getElementById('seed-prompt').value = typeof prompt.prompt === 'string'
+                    ? prompt.prompt
+                    : JSON.stringify(prompt.prompt, null, 2);
+
+                // Pre-fill save name
+                document.getElementById('save-prompt-name').value = prompt.name;
+
+            } catch (error) {
+                console.error('Failed to fetch prompt:', error);
+                alert('Failed to load prompt details');
+            }
+        }
+
+        function createNewPrompt() {
+            // Clear form and deselect any prompt
+            document.querySelectorAll('.prompt-item').forEach(el => el.classList.remove('selected'));
+            selectedPrompt = null;
+
+            // Clear the form
+            document.getElementById('selected-prompt-name').value = '';
+            document.getElementById('seed-prompt').value = '';
+
+            // Focus on the name input
+            document.getElementById('selected-prompt-name').focus();
+
+            // Clear save name fields too
+            const saveNameEl = document.getElementById('save-prompt-name');
+            if (saveNameEl) saveNameEl.value = '';
+
+            // Clear detected variables
+            document.getElementById('detected-variables').textContent = '';
+
+            console.log('[UI] New prompt form cleared');
+        }
+
+        async function savePromptToLangfuse() {
+            if (!langfuseConnected) {
+                alert('Please connect to Langfuse first');
+                return;
+            }
+
+            const config = getLangfuseConfig();
+            const name = document.getElementById('selected-prompt-name').value.trim();
+            const promptContent = document.getElementById('seed-prompt').value.trim();
+
+            if (!name) {
+                alert('Please enter a prompt name');
+                document.getElementById('selected-prompt-name').focus();
+                return;
+            }
+
+            if (!promptContent) {
+                alert('Please enter prompt content');
+                document.getElementById('seed-prompt').focus();
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/langfuse/save-prompt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        langfuse: config,
+                        name: name,
+                        prompt: promptContent,
+                        labels: [],
+                        commit_message: 'Created/updated via GEPA UI'
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to save');
+                }
+
+                const result = await response.json();
+                alert(`Prompt "${name}" saved successfully (version ${result.version})`);
+
+                // Refresh prompts list
+                await connectLangfuse();
+
+                // Select the newly saved prompt
+                setTimeout(() => selectPrompt(name), 100);
+
+            } catch (error) {
+                console.error('Save error:', error);
+                alert('Failed to save prompt: ' + error.message);
+            }
+        }
+
+        async function saveToLangfuse() {
+            if (!langfuseConnected) {
+                alert('Please connect to Langfuse first');
+                return;
+            }
+
+            const config = getLangfuseConfig();
+            const promptContent = document.getElementById('best-prompt').textContent;
+            const name = document.getElementById('save-prompt-name').value;
+            const labels = document.getElementById('save-prompt-labels').value.split(',').map(l => l.trim()).filter(l => l);
+            const commitMessage = document.getElementById('save-commit-message').value;
+
+            if (!name) {
+                alert('Please enter a prompt name');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/langfuse/save-prompt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        langfuse: config,
+                        name: name,
+                        prompt: promptContent,
+                        labels: labels,
+                        commit_message: commitMessage || 'Optimized with GEPA'
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to save');
+                }
+
+                const result = await response.json();
+                alert(`Prompt saved successfully as "${name}" (version ${result.version})`);
+
+                // Refresh prompts list
+                connectLangfuse();
+
+            } catch (error) {
+                console.error('Save error:', error);
+                alert('Failed to save prompt: ' + error.message);
+            }
+        }
+
+        async function saveFromMainCompareTab() {
+            if (!langfuseConnected) {
+                alert('Please connect to Langfuse first');
+                return;
+            }
+
+            const config = getLangfuseConfig();
+            const promptContent = document.getElementById('main-evolved-prompt-content').textContent;
+            const name = document.getElementById('main-save-prompt-name').value;
+            const labels = document.getElementById('main-save-prompt-labels').value.split(',').map(l => l.trim()).filter(l => l);
+            let commitMessage = document.getElementById('main-save-commit-message').value;
+
+            if (!name) {
+                alert('Please enter a prompt name');
+                return;
+            }
+
+            // Auto-generate commit message with improvement info if not provided
+            if (!commitMessage && currentInitialScore && currentBestScore) {
+                const improvement = (currentBestScore - currentInitialScore).toFixed(1);
+                commitMessage = `Optimized with GEPA - score improved from ${currentInitialScore.toFixed(1)} to ${currentBestScore.toFixed(1)} (+${improvement} points)`;
+            }
+
+            try {
+                const response = await fetch('/api/langfuse/save-prompt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        langfuse: config,
+                        name: name,
+                        prompt: promptContent,
+                        labels: labels,
+                        commit_message: commitMessage || 'Optimized with GEPA'
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to save');
+                }
+
+                const result = await response.json();
+                alert(`Prompt saved successfully as "${name}" (version ${result.version})`);
+
+                // Refresh prompts list
+                connectLangfuse();
+
+            } catch (error) {
+                console.error('Save error:', error);
+                alert('Failed to save prompt: ' + error.message);
+            }
+        }
+
+        async function saveFromCompareTab() {
+            if (!langfuseConnected) {
+                alert('Please connect to Langfuse first');
+                return;
+            }
+
+            const config = getLangfuseConfig();
+            const promptContent = document.getElementById('evolved-prompt-content').textContent;
+            const name = document.getElementById('compare-save-prompt-name').value;
+            const labels = document.getElementById('compare-save-prompt-labels').value.split(',').map(l => l.trim()).filter(l => l);
+            let commitMessage = document.getElementById('compare-save-commit-message').value;
+
+            if (!name) {
+                alert('Please enter a prompt name');
+                return;
+            }
+
+            // Auto-generate commit message with improvement info if not provided
+            if (!commitMessage && currentInitialScore && currentBestScore) {
+                const improvement = (currentBestScore - currentInitialScore).toFixed(1);
+                commitMessage = `Optimized with GEPA - score improved from ${currentInitialScore.toFixed(1)} to ${currentBestScore.toFixed(1)} (+${improvement} points)`;
+            }
+
+            try {
+                const response = await fetch('/api/langfuse/save-prompt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        langfuse: config,
+                        name: name,
+                        prompt: promptContent,
+                        labels: labels,
+                        commit_message: commitMessage || 'Optimized with GEPA'
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to save');
+                }
+
+                const result = await response.json();
+                alert(`Prompt saved successfully as "${name}" (version ${result.version})`);
+
+                // Refresh prompts list
+                connectLangfuse();
+
+            } catch (error) {
+                console.error('Save error:', error);
+                alert('Failed to save prompt: ' + error.message);
+            }
+        }
+
+        // ===== SAVE FUNCTIONS =====
+
+        async function saveJudgeToLangfuse() {
+            if (!langfuseConnected) {
+                alert('Please connect to Langfuse first');
+                return;
+            }
+
+            const judgePrompt = document.getElementById('judge-prompt').value;
+            if (!judgePrompt.trim()) {
+                alert('No judge prompt to save');
+                return;
+            }
+
+            const baseName = document.getElementById('selected-prompt-name').value || 'prompt';
+            const suggestedName = `${baseName}-judge`;
+
+            const name = prompt('Save judge prompt as:', suggestedName);
+            if (!name) return;
+
+            await savePromptToLangfuseAPI(name, judgePrompt, ['judge', 'evaluator'], 'Judge prompt for ' + baseName);
+        }
+
+        async function saveCandidateToLangfuse(index) {
+            if (!langfuseConnected) {
+                alert('Please connect to Langfuse first');
+                return;
+            }
+
+            const candidates = window.currentCandidates || [];
+            if (!candidates[index]) {
+                alert('Candidate not found');
+                return;
+            }
+
+            const candidate = candidates[index];
+            const baseName = document.getElementById('selected-prompt-name').value || 'prompt';
+            const suggestedName = `${baseName}-optimized`;
+
+            const name = prompt(`Save candidate (score: ${candidate.score.toFixed(1)}) as:`, suggestedName);
+            if (!name) return;
+
+            await savePromptToLangfuseAPI(name, candidate.prompt, ['optimized', 'gepa'], `Optimized with GEPA (score: ${candidate.score.toFixed(1)})`);
+        }
+
+        async function savePromptToLangfuseAPI(name, promptContent, labels, commitMessage) {
+            const config = getLangfuseConfig();
+
+            const payload = {
+                langfuse: config,
+                name: name,
+                prompt: promptContent,
+                labels: labels || ['optimized'],
+                commit_message: commitMessage || ''
+            };
+
+            console.log('Saving prompt:', payload);
+
+            try {
+                const response = await fetch('/api/langfuse/save-prompt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    const errorMsg = typeof error.detail === 'string'
+                        ? error.detail
+                        : JSON.stringify(error.detail || error);
+                    throw new Error(errorMsg);
+                }
+
+                const result = await response.json();
+                alert(`Saved "${name}" (version ${result.version || 'new'})`);
+
+                // Refresh prompts list
+                connectLangfuse();
+
+            } catch (error) {
+                console.error('Save error:', error);
+                alert('Failed to save: ' + error.message);
+            }
+        }
+
+        // ===== GENERATE TEST INPUTS =====
+
+        async function generateTestInputs() {
+            const seedPrompt = document.getElementById('seed-prompt').value;
+
+            if (!seedPrompt.trim()) {
+                alert('Please enter a seed prompt first');
+                return;
+            }
+
+            // Use task model for generation
+            const modelConfig = {
+                provider: document.getElementById('task-provider').value,
+                model: document.getElementById('task-model').value,
+                api_key: document.getElementById('task-api-key').value
+            };
+
+            if (!modelConfig.api_key) {
+                alert('Please enter an API key for the Task Model');
+                return;
+            }
+
+            const btn = document.getElementById('generate-inputs-btn');
+            const originalText = btn.textContent;
+            btn.textContent = 'Generating...';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('/api/generate-test-inputs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        seed_prompt: seedPrompt,
+                        num_inputs: 5,
+                        model: modelConfig
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to generate test inputs');
+                }
+
+                const data = await response.json();
+
+                // Clear existing and add new test inputs
+                const list = document.getElementById('test-inputs-list');
+                list.innerHTML = '';
+
+                data.test_inputs.forEach(input => {
+                    const item = document.createElement('div');
+                    item.className = 'test-input-item';
+                    item.innerHTML = `
+                        <textarea class="sample-data-input" placeholder="Paste sample data here...">${escapeHtml(input)}</textarea>
+                        <button onclick="removeTestInput(this)">&times;</button>
+                    `;
+                    list.appendChild(item);
+                });
+
+                saveConfig();
+
+            } catch (error) {
+                console.error('Generate test inputs error:', error);
+                alert('Failed to generate test inputs: ' + error.message);
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        // ===== GENERATE JUDGE =====
+
+        async function generateJudge() {
+            const seedPrompt = document.getElementById('seed-prompt').value;
+            const additionalInstructions = document.getElementById('judge-instructions').value;
+
+            if (!seedPrompt.trim()) {
+                alert('Please enter a seed prompt first');
+                return;
+            }
+
+            // Use judge model config for generation
+            const modelConfig = {
+                provider: document.getElementById('judge-provider').value,
+                model: document.getElementById('judge-model').value,
+                api_key: document.getElementById('judge-api-key').value
+            };
+
+            if (!modelConfig.api_key) {
+                alert('Please enter an API key for the Judge Model');
+                return;
+            }
+
+            const btn = document.getElementById('generate-judge-btn');
+            const originalText = btn.textContent;
+            btn.textContent = 'Generating...';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('/api/generate-judge', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        seed_prompt: seedPrompt,
+                        additional_instructions: additionalInstructions,
+                        model: modelConfig
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to generate judge');
+                }
+
+                const data = await response.json();
+                document.getElementById('judge-prompt').value = data.judge_prompt;
+                saveConfig();
+
+            } catch (error) {
+                console.error('Generate judge error:', error);
+                alert('Failed to generate judge: ' + error.message);
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        // ===== EVOLUTION FUNCTIONS =====
+
+        function updateModelOptions(type) {
+            const provider = document.getElementById(`${type}-provider`).value;
+            const modelSelect = document.getElementById(`${type}-model`);
+            const models = modelOptions[provider] || [];
+            modelSelect.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('');
+        }
+
+        function addTestInput() {
+            const list = document.getElementById('test-inputs-list');
+            const item = document.createElement('div');
+            item.className = 'test-input-item';
+            item.innerHTML = `
+                <textarea class="sample-data-input" placeholder="Paste sample data here..."></textarea>
+                <button onclick="removeTestInput(this)">&times;</button>
+            `;
+            list.appendChild(item);
+        }
+
+        function removeTestInput(btn) {
+            const list = document.getElementById('test-inputs-list');
+            if (list.children.length > 1) {
+                btn.parentElement.remove();
+            }
+        }
+
+        function getTestInputs() {
+            const inputs = document.querySelectorAll('#test-inputs-list textarea, #test-inputs-list input');
+            return Array.from(inputs).map(i => i.value).filter(v => v.trim());
+        }
+
+        async function startEvolution() {
+            const config = {
+                seed_prompt: document.getElementById('seed-prompt').value,
+                judge_prompt: document.getElementById('judge-prompt').value,
+                test_inputs: getTestInputs(),
+                task_model: {
+                    provider: document.getElementById('task-provider').value,
+                    model: document.getElementById('task-model').value,
+                    api_key: document.getElementById('task-api-key').value
+                },
+                judge_model: {
+                    provider: document.getElementById('judge-provider').value,
+                    model: document.getElementById('judge-model').value,
+                    api_key: document.getElementById('judge-api-key').value
+                },
+                max_iterations: parseInt(document.getElementById('max-iterations').value),
+                population_size: parseInt(document.getElementById('population-size').value)
+            };
+
+            if (!config.task_model.api_key || !config.judge_model.api_key) {
+                alert('Please enter API keys for both models');
+                return;
+            }
+
+            if (config.test_inputs.length === 0) {
+                alert('Please add at least one test input');
+                return;
+            }
+
+            // Update UI
+            document.getElementById('results-section').classList.add('hidden');
+            document.getElementById('start-btn').style.display = 'none';
+            document.getElementById('stop-btn').style.display = 'block';
+            document.getElementById('logs-container').innerHTML = '';
+            document.getElementById('candidates-list').innerHTML = '';
+
+            // Reset improvement display
+            document.getElementById('stat-improvement').textContent = '-';
+            document.getElementById('stat-improvement').style.color = '#2ecc71';
+            document.getElementById('score-detail').style.display = 'none';
+            document.getElementById('stat-score').textContent = '0';
+
+            // Store seed prompt and sample data for comparison/restoration
+            currentSeedPrompt = config.seed_prompt;
+            currentSampleData = config.test_inputs;  // Store the actual sample data used
+            currentInitialScore = null;
+            currentBestScore = null;
+
+            console.log('[Evolution] Seed prompt:', currentSeedPrompt.substring(0, 100) + '...');
+            console.log('[Evolution] Sample data:', currentSampleData);
+
+            // Reset to first tab
+            switchTab('best');
+
+            try {
+                const response = await fetch('/api/evolution/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+
+                const data = await response.json();
+                currentSessionId = data.session_id;
+
+                connectToStream(currentSessionId, config.max_iterations);
+                saveConfig();
+
+            } catch (error) {
+                console.error('Error starting evolution:', error);
+                alert('Failed to start evolution: ' + error.message);
+                resetUI();
+            }
+        }
+
+        function connectToStream(sessionId, maxIterations) {
+            eventSource = new EventSource(`/api/evolution/${sessionId}/stream`);
+
+            eventSource.addEventListener('log', (event) => {
+                const log = JSON.parse(event.data);
+                addLogEntry(log.message, log.data);
+            });
+
+            eventSource.addEventListener('status', (event) => {
+                const status = JSON.parse(event.data);
+                updateStatus(status, maxIterations);
+            });
+
+            eventSource.onerror = () => {
+                eventSource.close();
+            };
+        }
+
+        function copyLogs() {
+            const container = document.getElementById('logs-container');
+            const logs = Array.from(container.querySelectorAll('.log-entry')).map(entry => {
+                const msg = entry.querySelector('.log-message')?.textContent || '';
+                const data = entry.querySelector('.log-data')?.textContent || '';
+                return msg + (data ? '\n' + data : '');
+            }).join('\n\n');
+
+            navigator.clipboard.writeText(logs).then(() => {
+                const btn = document.querySelector('[onclick="copyLogs()"]');
+                const originalText = btn.textContent;
+                btn.textContent = 'Copied!';
+                setTimeout(() => btn.textContent = originalText, 1500);
+            }).catch(err => {
+                console.error('Failed to copy:', err);
+                alert('Failed to copy logs');
+            });
+        }
+
+        function addLogEntry(message, data) {
+            const container = document.getElementById('logs-container');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'log-message';
+            messageDiv.textContent = message;
+            entry.appendChild(messageDiv);
+
+            if (data && Object.keys(data).length > 0) {
+                const dataDiv = document.createElement('div');
+                dataDiv.className = 'log-data';
+                dataDiv.textContent = JSON.stringify(data, null, 2);
+                entry.appendChild(dataDiv);
+            }
+
+            container.appendChild(entry);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        let currentMaxIterations = 10;
+
+        function updateStatus(status, maxIterations) {
+            currentMaxIterations = maxIterations;
+
+            const badge = document.getElementById('status-badge');
+            badge.textContent = status.status.charAt(0).toUpperCase() + status.status.slice(1);
+            badge.className = `status-badge status-${status.status}`;
+
+            const progress = (status.current_iteration / maxIterations) * 100;
+            const progressBar = document.getElementById('progress-bar');
+            progressBar.style.width = `${Math.min(progress, 100)}%`;
+            progressBar.textContent = `${Math.round(progress)}%`;
+
+            const displayIteration = Math.min(status.current_iteration, maxIterations);
+            document.getElementById('stat-iteration').innerHTML = `${displayIteration}/<span id="stat-max-iterations">${maxIterations}</span>`;
+            document.getElementById('stat-score').textContent = status.best_score ? status.best_score.toFixed(1) : '0';
+
+            // Display improvement
+            if (status.initial_score !== null && status.initial_score !== undefined) {
+                const improvement = status.improvement || 0;
+                const improvementEl = document.getElementById('stat-improvement');
+
+                if (improvement > 0) {
+                    improvementEl.textContent = `+${improvement.toFixed(1)}`;
+                    improvementEl.style.color = '#2ecc71';  // Green for positive
+                } else if (improvement < 0) {
+                    improvementEl.textContent = improvement.toFixed(1);
+                    improvementEl.style.color = '#e74c3c';  // Red for negative
+                } else {
+                    improvementEl.textContent = '0';
+                    improvementEl.style.color = '#888';  // Gray for no change
+                }
+
+                // Show detailed score transition
+                document.getElementById('score-detail').style.display = 'block';
+                document.getElementById('initial-score').textContent = status.initial_score.toFixed(1);
+                document.getElementById('best-score-display').textContent = status.best_score.toFixed(1);
+            }
+
+            if (status.best_candidate) {
+                const bestPromptEl = document.getElementById('best-prompt');
+                // Use restored_candidate from backend (has {{variables}} restored)
+                // Fall back to client-side restoration if not available
+                const restoredPrompt = status.restored_candidate ||
+                    restoreTemplateVariables(status.best_candidate, currentSeedPrompt);
+                bestPromptEl.textContent = restoredPrompt;
+            }
+
+            if (status.candidates && status.candidates.length > 0) {
+                window.currentCandidates = status.candidates;
+                const list = document.getElementById('candidates-list');
+                list.innerHTML = '<div class="panel-header" style="margin-bottom:10px;">All Candidates</div>' +
+                    status.candidates.map((c, i) => `
+                    <div class="candidate-item" title="${escapeHtml(c.prompt)}">
+                        <div class="candidate-prompt" onclick="selectCandidate(${i})">${escapeHtml(c.prompt.substring(0, 60))}...</div>
+                        <div style="display:flex;gap:6px;align-items:center;">
+                            <div class="candidate-score">${c.score.toFixed(1)}</div>
+                            <button class="btn btn-success btn-sm" onclick="saveCandidateToLangfuse(${i})" style="padding:4px 8px;font-size:0.7rem;">Save</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            if (status.status === 'completed' || status.status === 'error' || status.status === 'stopped') {
+                document.getElementById('results-section').classList.remove('hidden');
+
+                // Populate comparison view with restored prompt
+                const restoredForCompare = status.restored_candidate ||
+                    restoreTemplateVariables(status.best_candidate, currentSeedPrompt);
+                updateComparisonView(
+                    currentSeedPrompt,
+                    restoredForCompare,
+                    status.initial_score,
+                    status.best_score
+                );
+
+                resetUI();
+                if (eventSource) eventSource.close();
+            }
+        }
+
+        function selectCandidate(index) {
+            const candidates = Array.from(document.querySelectorAll('.candidate-item'));
+            candidates.forEach(c => c.classList.remove('selected'));
+            candidates[index]?.classList.add('selected');
+
+            // Update best prompt display with selected candidate
+            const title = candidates[index]?.getAttribute('title');
+            if (title) {
+                document.getElementById('best-prompt').textContent = title;
+            }
+        }
+
+        async function stopEvolution() {
+            if (currentSessionId) {
+                await fetch(`/api/evolution/${currentSessionId}/stop`, { method: 'POST' });
+
+                // Fetch final status to get best candidate
+                try {
+                    const response = await fetch(`/api/evolution/${currentSessionId}/status`);
+                    const status = await response.json();
+
+                    // Show results with whatever we have
+                    if (status.best_candidate) {
+                        // Use restored_candidate from backend (has {{variables}} restored)
+                        const restoredPrompt = status.restored_candidate ||
+                            restoreTemplateVariables(status.best_candidate, currentSeedPrompt);
+                        document.getElementById('best-prompt').textContent = restoredPrompt;
+                        document.getElementById('results-section').classList.remove('hidden');
+
+                        // Populate comparison view with restored prompt
+                        updateComparisonView(
+                            currentSeedPrompt,
+                            restoredPrompt,
+                            status.initial_score,
+                            status.best_score
+                        );
+                    }
+
+                    // Update candidates list
+                    if (status.candidates && status.candidates.length > 0) {
+                        window.currentCandidates = status.candidates;
+                        const list = document.getElementById('candidates-list');
+                        list.innerHTML = '<div class="panel-header" style="margin-bottom:10px;">All Candidates</div>' +
+                            status.candidates.map((c, i) => `
+                            <div class="candidate-item" title="${escapeHtml(c.prompt)}">
+                                <div class="candidate-prompt" onclick="selectCandidate(${i})">${escapeHtml(c.prompt.substring(0, 60))}...</div>
+                                <div style="display:flex;gap:6px;align-items:center;">
+                                    <div class="candidate-score">${c.score.toFixed(1)}</div>
+                                    <button class="btn btn-success btn-sm" onclick="saveCandidateToLangfuse(${i})" style="padding:4px 8px;font-size:0.7rem;">Save</button>
+                                </div>
+                            </div>
+                        `).join('');
+                    }
+
+                    // Update badge
+                    document.getElementById('status-badge').textContent = 'Stopped';
+                    document.getElementById('status-badge').className = 'status-badge status-stopped';
+
+                } catch (e) {
+                    console.error('Error fetching final status:', e);
+                }
+            }
+
+            if (eventSource) {
+                eventSource.close();
+            }
+            resetUI();
+        }
+
+        function resetUI() {
+            document.getElementById('start-btn').style.display = 'block';
+            document.getElementById('stop-btn').style.display = 'none';
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        // ===== LOCAL STORAGE =====
+
+        const STORAGE_KEY = 'gepa_langfuse_config';
+
+        function saveConfig() {
+            const config = {
+                langfuse: getLangfuseConfig(),
+                taskProvider: document.getElementById('task-provider').value,
+                taskModel: document.getElementById('task-model').value,
+                taskApiKey: document.getElementById('task-api-key').value,
+                judgeProvider: document.getElementById('judge-provider').value,
+                judgeModel: document.getElementById('judge-model').value,
+                judgeApiKey: document.getElementById('judge-api-key').value,
+                seedPrompt: document.getElementById('seed-prompt').value,
+                judgePrompt: document.getElementById('judge-prompt').value,
+                judgeInstructions: document.getElementById('judge-instructions').value,
+                testInputs: getTestInputs(),
+                maxIterations: document.getElementById('max-iterations').value,
+                populationSize: document.getElementById('population-size').value
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+        }
+
+        function loadConfig() {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (!saved) return;
+
+            try {
+                const config = JSON.parse(saved);
+
+                if (config.langfuse) {
+                    document.getElementById('langfuse-host').value = config.langfuse.host || 'https://cloud.langfuse.com';
+                    document.getElementById('langfuse-public-key').value = config.langfuse.public_key || '';
+                    document.getElementById('langfuse-secret-key').value = config.langfuse.secret_key || '';
+                }
+
+                if (config.taskProvider) {
+                    document.getElementById('task-provider').value = config.taskProvider;
+                    updateModelOptions('task');
+                }
+                if (config.taskModel) document.getElementById('task-model').value = config.taskModel;
+                if (config.taskApiKey) document.getElementById('task-api-key').value = config.taskApiKey;
+
+                if (config.judgeProvider) {
+                    document.getElementById('judge-provider').value = config.judgeProvider;
+                    updateModelOptions('judge');
+                }
+                if (config.judgeModel) document.getElementById('judge-model').value = config.judgeModel;
+                if (config.judgeApiKey) document.getElementById('judge-api-key').value = config.judgeApiKey;
+
+                if (config.seedPrompt) document.getElementById('seed-prompt').value = config.seedPrompt;
+                if (config.judgePrompt) document.getElementById('judge-prompt').value = config.judgePrompt;
+                if (config.judgeInstructions) document.getElementById('judge-instructions').value = config.judgeInstructions;
+
+                if (config.testInputs && config.testInputs.length > 0) {
+                    const list = document.getElementById('test-inputs-list');
+                    list.innerHTML = '';
+                    config.testInputs.forEach(input => {
+                        const item = document.createElement('div');
+                        item.className = 'test-input-item';
+                        item.innerHTML = `
+                            <textarea class="sample-data-input" placeholder="Paste sample data here...">${escapeHtml(input)}</textarea>
+                            <button onclick="removeTestInput(this)">&times;</button>
+                        `;
+                        list.appendChild(item);
+                    });
+                }
+
+                if (config.maxIterations) document.getElementById('max-iterations').value = config.maxIterations;
+                if (config.populationSize) document.getElementById('population-size').value = config.populationSize;
+
+            } catch (e) {
+                console.error('Failed to load config:', e);
+            }
+        }
+
+        function setupAutoSave() {
+            document.querySelectorAll('input, textarea, select').forEach(input => {
+                input.addEventListener('change', saveConfig);
+            });
+        }
+
+        // Initialize
+        loadConfig();
+        updateModelOptions('task');
+        updateModelOptions('judge');
+
+        // Re-apply saved model selections
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+            try {
+                const config = JSON.parse(saved);
+                if (config.taskModel) document.getElementById('task-model').value = config.taskModel;
+                if (config.judgeModel) document.getElementById('judge-model').value = config.judgeModel;
+            } catch(e) {}
+        }
+
+        setupAutoSave();
+
+        // Auto-connect if credentials saved
+        setTimeout(() => {
+            const config = getLangfuseConfig();
+            if (config.public_key && config.secret_key) {
+                connectLangfuse();
+            }
+        }, 500);
+    </script>
+</body>
+</html>

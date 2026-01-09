@@ -1,0 +1,10 @@
+gepa
+fastapi
+uvicorn[standard]
+python-multipart
+openai
+anthropic
+litellm
+pydantic
+sse-starlette
+httpx
