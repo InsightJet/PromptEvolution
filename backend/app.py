@@ -936,32 +936,45 @@ async def get_langfuse_prompt(prompt_name: str, config: LangfuseConfig, version:
     import urllib.parse
 
     try:
-        params = {}
-        if version:
-            params["version"] = version
-        if label:
-            params["label"] = label
-
         # URL encode the prompt name for the API call
         encoded_name = urllib.parse.quote(prompt_name, safe='')
 
         async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{config.host}/api/public/v2/prompts/{encoded_name}",
-                headers=get_langfuse_auth_header(config),
-                params=params
-            )
+            # Try different labels in order of preference
+            labels_to_try = ["optimized", "latest", "production", None]
+            if label:
+                labels_to_try.insert(0, label)
 
-            if response.status_code == 404:
-                # Try without encoding in case it's already encoded
+            response = None
+            last_error = None
+
+            for try_label in labels_to_try:
+                params = {}
+                if version:
+                    params["version"] = version
+                if try_label:
+                    params["label"] = try_label
+
+                print(f"[Langfuse] Trying to fetch '{prompt_name}' with params: {params}")
+
                 response = await client.get(
-                    f"{config.host}/api/public/v2/prompts/{prompt_name}",
+                    f"{config.host}/api/public/v2/prompts/{encoded_name}",
                     headers=get_langfuse_auth_header(config),
-                    params=params
+                    params=params if params else None
                 )
 
-            response.raise_for_status()
-            return response.json()
+                if response.status_code == 200:
+                    print(f"[Langfuse] Successfully fetched '{prompt_name}' with label '{try_label}'")
+                    return response.json()
+                else:
+                    last_error = response.text
+                    print(f"[Langfuse] Failed with label '{try_label}': {response.status_code}")
+
+            # If all attempts failed, raise the last error
+            raise HTTPException(status_code=404, detail=f"Prompt not found. Tried labels: {labels_to_try}. Last error: {last_error}")
+
+    except HTTPException:
+        raise
     except httpx.HTTPStatusError as e:
         print(f"[Langfuse] Error fetching prompt '{prompt_name}': {e.response.status_code} - {e.response.text}")
         raise HTTPException(status_code=e.response.status_code, detail=f"Langfuse API error: {e.response.text}")
