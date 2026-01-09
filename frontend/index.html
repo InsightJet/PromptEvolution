@@ -854,12 +854,12 @@ FEEDBACK: [detailed feedback]</textarea>
                 </div>
             </div>
 
-            <div class="card">
+            <div class="card" id="sample-data-card">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                    <h3 style="margin: 0;">Sample Data for Testing</h3>
+                    <h3 style="margin: 0;">Sample Data for Testing <span id="sample-data-required" style="font-size: 0.75rem; color: #f39c12;">(required)</span></h3>
                     <button class="btn btn-secondary btn-sm" id="generate-inputs-btn" onclick="generateTestInputs()">Generate Samples</button>
                 </div>
-                <p style="font-size: 0.8rem; color: #888; margin-bottom: 10px;">Sample data to fill template variables (e.g., UI components to classify). Each sample tests the prompt separately.</p>
+                <p style="font-size: 0.8rem; color: #888; margin-bottom: 10px;" id="sample-data-description">Sample data to fill template variables (e.g., UI components to classify). Each sample tests the prompt separately.</p>
                 <div class="test-inputs-list" id="test-inputs-list">
                     <div class="test-input-item">
                         <textarea class="sample-data-input" placeholder="Paste sample data here...">&lt;button class="ant-btn ant-btn-primary"&gt;Submit&lt;/button&gt;
@@ -1805,6 +1805,9 @@ FEEDBACK: [detailed feedback]</textarea>
                 // Pre-fill save name
                 document.getElementById('save-prompt-name').value = prompt.name;
 
+                // Update template variables UI
+                updateTemplateVariablesUI();
+
             } catch (error) {
                 console.error('Failed to fetch prompt:', error);
                 alert('Failed to load prompt details');
@@ -1827,8 +1830,8 @@ FEEDBACK: [detailed feedback]</textarea>
             const saveNameEl = document.getElementById('save-prompt-name');
             if (saveNameEl) saveNameEl.value = '';
 
-            // Clear detected variables
-            document.getElementById('detected-variables').textContent = '';
+            // Update template variables UI
+            updateTemplateVariablesUI();
 
             console.log('[UI] New prompt form cleared');
         }
@@ -2309,9 +2312,17 @@ FEEDBACK: [detailed feedback]</textarea>
                 return;
             }
 
-            if (config.test_inputs.length === 0) {
-                alert('Please add at least one test input');
+            // Check if prompt has template variables
+            const hasTemplateVars = /\{\{\w+\}\}/.test(config.seed_prompt);
+
+            if (hasTemplateVars && config.test_inputs.length === 0) {
+                alert('Your prompt has template variables ({{...}}). Please add at least one test input to fill them.');
                 return;
+            }
+
+            // If no template vars and no test inputs, use a placeholder
+            if (!hasTemplateVars && config.test_inputs.length === 0) {
+                config.test_inputs = [''];  // Empty placeholder for prompts without variables
             }
 
             // Update UI
@@ -2665,10 +2676,48 @@ FEEDBACK: [detailed feedback]</textarea>
             });
         }
 
+        // Detect template variables and update UI
+        function updateTemplateVariablesUI() {
+            const seedPrompt = document.getElementById('seed-prompt').value;
+            const varRegex = /\{\{(\w+)\}\}/g;
+            const vars = [];
+            let match;
+            while ((match = varRegex.exec(seedPrompt)) !== null) {
+                vars.push(match[1]);
+            }
+
+            // Update detected variables display
+            const detectedEl = document.getElementById('detected-variables');
+            if (vars.length > 0) {
+                detectedEl.innerHTML = 'Detected variables: ' + vars.map(v => `<code style="background:#1a1a2e;padding:2px 6px;border-radius:3px;">{{${v}}}</code>`).join(' ');
+            } else {
+                detectedEl.textContent = '';
+            }
+
+            // Update sample data section
+            const requiredLabel = document.getElementById('sample-data-required');
+            const description = document.getElementById('sample-data-description');
+
+            if (vars.length > 0) {
+                requiredLabel.textContent = '(required)';
+                requiredLabel.style.color = '#f39c12';
+                description.textContent = 'Sample data to fill template variables. Each sample tests the prompt separately.';
+            } else {
+                requiredLabel.textContent = '(optional)';
+                requiredLabel.style.color = '#2ecc71';
+                description.textContent = 'No template variables detected. Test inputs are optional for this prompt.';
+            }
+        }
+
         // Initialize
         loadConfig();
         updateModelOptions('task');
         updateModelOptions('judge');
+
+        // Set up event listener for template variable detection
+        document.getElementById('seed-prompt').addEventListener('input', updateTemplateVariablesUI);
+        // Run initially
+        updateTemplateVariablesUI();
 
         // Re-apply saved model selections
         const saved = localStorage.getItem(STORAGE_KEY);
