@@ -930,9 +930,11 @@ async def list_langfuse_prompts(config: LangfuseConfig):
         raise HTTPException(status_code=500, detail=f"Failed to fetch prompts: {str(e)}")
 
 
-@app.post("/api/langfuse/prompts/{prompt_name}")
+@app.post("/api/langfuse/prompts/{prompt_name:path}")
 async def get_langfuse_prompt(prompt_name: str, config: LangfuseConfig, version: Optional[int] = None, label: Optional[str] = None):
     """Get a specific prompt from Langfuse"""
+    import urllib.parse
+
     try:
         params = {}
         if version:
@@ -940,17 +942,31 @@ async def get_langfuse_prompt(prompt_name: str, config: LangfuseConfig, version:
         if label:
             params["label"] = label
 
+        # URL encode the prompt name for the API call
+        encoded_name = urllib.parse.quote(prompt_name, safe='')
+
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                f"{config.host}/api/public/v2/prompts/{prompt_name}",
+                f"{config.host}/api/public/v2/prompts/{encoded_name}",
                 headers=get_langfuse_auth_header(config),
                 params=params
             )
+
+            if response.status_code == 404:
+                # Try without encoding in case it's already encoded
+                response = await client.get(
+                    f"{config.host}/api/public/v2/prompts/{prompt_name}",
+                    headers=get_langfuse_auth_header(config),
+                    params=params
+                )
+
             response.raise_for_status()
             return response.json()
     except httpx.HTTPStatusError as e:
+        print(f"[Langfuse] Error fetching prompt '{prompt_name}': {e.response.status_code} - {e.response.text}")
         raise HTTPException(status_code=e.response.status_code, detail=f"Langfuse API error: {e.response.text}")
     except Exception as e:
+        print(f"[Langfuse] Exception fetching prompt '{prompt_name}': {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch prompt: {str(e)}")
 
 
