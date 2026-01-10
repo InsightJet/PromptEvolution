@@ -45,6 +45,8 @@ class EvolutionConfig(BaseModel):
     reflection_model: Optional[ModelConfig] = None
     max_iterations: int = 10
     population_size: int = 5
+    output_type: str = "text"  # "text" or "image" - what the prompt generates
+    image_model: Optional[ModelConfig] = None  # Model for image generation (DALL-E, etc.)
 
 
 @dataclass
@@ -80,6 +82,11 @@ class EvolutionSession:
         self.template_variables = []  # List of variable names found in original prompt
         self.variable_sections = []  # Extracted variable lines to re-attach after evolution
         self.seed_prompt_with_markers = None  # Seed prompt with markers for evolution
+        self.original_seed_prompt = None  # Original seed prompt before any processing
+        self.generated_images = []  # Store generated images for display
+        self.output_type = "text"  # "text" or "image"
+        self.reflection_model = None  # Model config for retemplatization
+        self.retemplatized_candidate = None  # LLM-retemplatized best candidate
 
     def log(self, message: str, data: dict = None):
         entry = {"message": message, "data": data or {}}
@@ -326,6 +333,105 @@ def restore_template_variables(evolved_prompt: str, template_mapping: dict) -> s
     return restored
 
 
+def llm_retemplatize_variables(
+    original_prompt: str,
+    evolved_prompt: str,
+    model_config: ModelConfig
+) -> str:
+    """Use LLM to intelligently re-insert template variables into evolved prompt.
+
+    Takes the original prompt with {{variables}} and the evolved prompt,
+    asks LLM to place variables in appropriate locations in the evolved version.
+    """
+    import re
+
+    print(f"[Retemplatize] Starting LLM retemplatization...")
+    print(f"[Retemplatize] Original prompt length: {len(original_prompt)}")
+    print(f"[Retemplatize] Evolved prompt length: {len(evolved_prompt)}")
+
+    # Extract all template variables from original
+    variables = re.findall(r'\{\{(\w+)\}\}', original_prompt)
+    print(f"[Retemplatize] Found {len(variables)} variables: {set(variables)}")
+    if not variables:
+        print("[Retemplatize] No variables found, returning evolved prompt as-is")
+        return evolved_prompt
+
+    # Build explicit mapping of variable to its original context
+    var_mappings = []
+    for var in set(variables):
+        # Find the line containing this variable in original
+        for line in original_prompt.split('\n'):
+            if '{{' + var + '}}' in line:
+                var_mappings.append(f"- {{{{{var}}}}} was in: \"{line.strip()[:80]}\"")
+                break
+
+    meta_prompt = f"""You are a prompt engineer. Re-insert template variables into an evolved prompt.
+
+CRITICAL: Each variable name is UNIQUE and must appear EXACTLY ONCE with the CORRECT name.
+
+ORIGINAL VARIABLE LOCATIONS:
+{chr(10).join(var_mappings)}
+
+VARIABLES TO INSERT (each must appear exactly once):
+{', '.join([f'{{{{{v}}}}}' for v in set(variables)])}
+
+EVOLVED PROMPT:
+```
+{evolved_prompt[:3500]}
+```
+
+TASK:
+Insert each variable back into the evolved prompt at a semantically appropriate location.
+
+STRICT RULES:
+1. Every variable from the list MUST appear exactly ONCE in your output
+2. Use the EXACT variable name - do NOT substitute one variable for another
+3. {{{{mutationSection}}}} is different from {{{{datasetSection}}}} - don't confuse them
+4. Place each variable with an appropriate label (e.g., "BUSINESS CONTEXT: {{{{businessContext}}}}")
+5. Keep the evolved prompt's structure and improvements
+6. Preserve syntax exactly: {{{{variableName}}}}
+
+Return ONLY the complete prompt. No explanations or markdown code blocks."""
+
+    try:
+        model_string = get_litellm_model_string(model_config)
+        response = litellm.completion(
+            model=model_string,
+            messages=[{"role": "user", "content": meta_prompt}],
+            api_key=model_config.api_key,
+        )
+
+        result = response.choices[0].message.content.strip()
+        print(f"[Retemplatize] LLM returned response of length {len(result)}")
+
+        # Verify all variables are present
+        result_vars = set(re.findall(r'\{\{(\w+)\}\}', result))
+        original_vars = set(variables)
+        print(f"[Retemplatize] Result has variables: {result_vars}")
+        print(f"[Retemplatize] Original had variables: {original_vars}")
+
+        if original_vars.issubset(result_vars):
+            print(f"[Retemplatize] SUCCESS: All {len(original_vars)} variables present")
+            return result
+        else:
+            missing = original_vars - result_vars
+            print(f"[Retemplatize] WARNING: Missing variables {missing}")
+            # Fallback: append missing variables with proper labels
+            result += "\n\n## ADDITIONAL INPUT DATA\n"
+            for var in missing:
+                # Create a readable label from variable name
+                label = var.replace('_', ' ').replace('Section', '').upper()
+                result += f"\n{label}:\n{{{{{var}}}}}\n"
+            print(f"[Retemplatize] Appended {len(missing)} missing variables")
+            return result
+
+    except Exception as e:
+        print(f"[Retemplatize] ERROR: {e}")
+        import traceback
+        print(f"[Retemplatize] Traceback: {traceback.format_exc()}")
+        return evolved_prompt
+
+
 def fill_template(template: str, data: str) -> str:
     """Fill template variables with sample data.
 
@@ -414,6 +520,171 @@ def call_llm_sync(model_config: ModelConfig, prompt: str, user_input: str = None
     return response.choices[0].message.content
 
 
+def generate_image_sync(model_config: ModelConfig, prompt: str, user_input: str = None) -> dict:
+    """Generate an image using Replicate API.
+
+    Supports: Flux, Stable Diffusion XL, Google Imagen, and more.
+    Returns dict with 'url' of the generated image.
+    """
+    import replicate
+    import os
+    import time
+
+    # Fill template if we have input data
+    if user_input:
+        final_prompt = fill_template(prompt, user_input)
+    else:
+        final_prompt = prompt
+
+    print(f"[Image Gen] Generating image with model: {model_config.model}")
+    print(f"[Image Gen] Prompt: {final_prompt[:100]}...")
+
+    # Set Replicate API token
+    os.environ["REPLICATE_API_TOKEN"] = model_config.api_key
+
+    # Model mapping for Replicate
+    replicate_models = {
+        # Flux models (Black Forest Labs)
+        "flux-1.1-pro": "black-forest-labs/flux-1.1-pro",
+        "flux-1.1-pro-ultra": "black-forest-labs/flux-1.1-pro-ultra",
+        "flux-schnell": "black-forest-labs/flux-schnell",
+        "flux-dev": "black-forest-labs/flux-dev",
+        "flux-pro": "black-forest-labs/flux-pro",
+        # Stable Diffusion models
+        "sdxl": "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
+        "sd-3": "stability-ai/stable-diffusion-3",
+        "sd-3.5-large": "stability-ai/stable-diffusion-3.5-large",
+        "sd-3.5-large-turbo": "stability-ai/stable-diffusion-3.5-large-turbo",
+        "sdxl-lightning": "bytedance/sdxl-lightning-4step",
+        # Google Imagen
+        "imagen-3": "google-deepmind/imagen-3",
+        "imagen-3-fast": "google-deepmind/imagen-3-fast",
+        # Ideogram
+        "ideogram-v2": "ideogram-ai/ideogram-v2",
+        "ideogram-v2-turbo": "ideogram-ai/ideogram-v2-turbo",
+        # Recraft
+        "recraft-v3": "recraft-ai/recraft-v3",
+        "recraft-v3-svg": "recraft-ai/recraft-v3-svg",
+        # Playground
+        "playground-v2.5": "playgroundai/playground-v2.5-1024px-aesthetic",
+        # Kolors (Kwai)
+        "kolors": "kwai-kolors/kolors",
+        # Kandinsky
+        "kandinsky-3": "ai-forever/kandinsky-3",
+        # DALL-E style
+        "dall-e-3": "lucataco/dall-e-3",
+        # Midjourney style
+        "openjourney": "prompthero/openjourney",
+        # Realistic models
+        "realistic-vision": "lucataco/realistic-vision-v5.1",
+        "photon": "luma/photon",
+        # Art styles
+        "dreamshaper": "lucataco/dreamshaper-xl-turbo",
+        # Chinese models
+        "hunyuan-dit": "tencent/hunyuan-dit",
+    }
+
+    model_id = replicate_models.get(model_config.model, model_config.model)
+    print(f"[Image Gen] Using Replicate model: {model_id}")
+
+    # Retry logic for rate limiting
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            # Run the model
+            output = replicate.run(
+                model_id,
+                input={
+                    "prompt": final_prompt,
+                    "aspect_ratio": "1:1",  # Square for consistency
+                }
+            )
+
+            # Handle different output formats
+            if isinstance(output, list):
+                image_url = str(output[0])
+            elif hasattr(output, 'url'):
+                image_url = output.url
+            else:
+                image_url = str(output)
+
+            print(f"[Image Gen] Generated image URL: {image_url[:80]}...")
+
+            return {
+                "url": image_url,
+                "prompt": final_prompt,
+                "model": model_config.model,
+                "revised_prompt": None  # Replicate doesn't revise prompts
+            }
+
+        except Exception as e:
+            error_str = str(e)
+            # Check for rate limiting (429)
+            if "429" in error_str or "throttled" in error_str.lower() or "rate limit" in error_str.lower():
+                wait_time = 10 * (attempt + 1)  # Progressive backoff: 10s, 20s, 30s
+                print(f"[Image Gen] Rate limited. Waiting {wait_time}s before retry {attempt + 1}/{max_retries}...")
+                time.sleep(wait_time)
+                continue
+            else:
+                print(f"[Image Gen] Error: {error_str}")
+                raise
+
+    # If all retries failed
+    raise Exception(f"Failed to generate image after {max_retries} retries due to rate limiting")
+
+
+def call_vision_llm_sync(model_config: ModelConfig, prompt: str, image_url: str = None, image_base64: str = None) -> str:
+    """Call a vision-capable LLM with an image.
+
+    Supports Groq Llama 4 vision models, OpenAI GPT-4V, Anthropic Claude, etc.
+    """
+    model_string = get_litellm_model_string(model_config)
+
+    # Build message content with image
+    content = []
+
+    # Add the image first (required for vision models)
+    if image_url:
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": image_url}
+        })
+    elif image_base64:
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/png;base64,{image_base64}"}
+        })
+
+    # Add the text prompt
+    content.append({
+        "type": "text",
+        "text": prompt
+    })
+
+    print(f"[Vision LLM] Calling {model_string} with image URL: {image_url[:50] if image_url else 'N/A'}...")
+
+    try:
+        response = litellm.completion(
+            model=model_string,
+            messages=[
+                {"role": "user", "content": content}
+            ],
+            api_key=model_config.api_key,
+        )
+
+        if response and response.choices and len(response.choices) > 0:
+            result = response.choices[0].message.content
+            print(f"[Vision LLM] Response received: {result[:100] if result else 'Empty'}...")
+            return result
+        else:
+            print(f"[Vision LLM] Warning: Empty response from {model_string}")
+            return "SCORE: 50\nFEEDBACK: Unable to evaluate image - vision model returned empty response."
+
+    except Exception as e:
+        print(f"[Vision LLM] Error calling {model_string}: {str(e)}")
+        raise
+
+
 class LLMJudgeAdapter(GEPAAdapter[TestInput, Trajectory, str]):
     """
     Custom GEPA adapter that uses LLM-as-a-Judge for evaluation.
@@ -421,6 +692,8 @@ class LLMJudgeAdapter(GEPAAdapter[TestInput, Trajectory, str]):
     - Prompt X (candidate["system_prompt"]) is the prompt being optimized
     - Prompt Y (judge_prompt) evaluates the outputs
     - Z (judge feedback) drives the evolution
+
+    Supports multi-modal: image generation prompts judged by vision models.
     """
 
     def __init__(
@@ -428,12 +701,14 @@ class LLMJudgeAdapter(GEPAAdapter[TestInput, Trajectory, str]):
         task_model: ModelConfig,
         judge_model: ModelConfig,
         judge_prompt: str,
-        session: EvolutionSession
+        session: EvolutionSession,
+        image_model: ModelConfig = None
     ):
         self.task_model = task_model
         self.judge_model = judge_model
         self.judge_prompt = judge_prompt
         self.session = session
+        self.image_model = image_model
         self.eval_count = 0
 
     def evaluate(
@@ -444,19 +719,23 @@ class LLMJudgeAdapter(GEPAAdapter[TestInput, Trajectory, str]):
     ) -> EvaluationBatch[Trajectory, str]:
         """
         Run Prompt X on inputs, then use Prompt Y (judge) to score.
+        Supports both text and image generation prompts.
         """
         outputs = []
         scores = []
         trajectories = [] if capture_traces else None
 
         system_prompt = candidate.get("system_prompt", "")
+        is_image_mode = self.session.output_type == "image"
 
         # Track evaluation count (not same as GEPA iterations)
         self.eval_count += 1
         # Don't override current_iteration here - let GEPAProgressLogger handle it
 
-        self.session.log(f"Evaluation round {self.eval_count}: testing candidate on {len(batch)} inputs", {
-            "prompt_preview": system_prompt[:100] + "..." if len(system_prompt) > 100 else system_prompt
+        mode_label = "image generation" if is_image_mode else "text"
+        self.session.log(f"Evaluation round {self.eval_count}: testing {mode_label} candidate on {len(batch)} inputs", {
+            "prompt_preview": system_prompt[:100] + "..." if len(system_prompt) > 100 else system_prompt,
+            "output_type": self.session.output_type
         })
 
         for item in batch:
@@ -477,14 +756,69 @@ class LLMJudgeAdapter(GEPAAdapter[TestInput, Trajectory, str]):
 
                 self.session.log(f"Running filled prompt", {
                     "sample_data_preview": item.input_text[:100] + "..." if len(item.input_text) > 100 else item.input_text,
-                    "filled_prompt_preview": filled_prompt[:200] + "..." if len(filled_prompt) > 200 else filled_prompt
+                    "filled_prompt_preview": filled_prompt[:200] + "..." if len(filled_prompt) > 200 else filled_prompt,
+                    "mode": "image" if is_image_mode else "text"
                 })
 
-                output = call_llm_sync(self.task_model, filled_prompt)
-                outputs.append(output)
+                # === IMAGE MODE: Generate image and judge with vision model ===
+                if is_image_mode and self.image_model:
+                    # Generate image
+                    image_result = generate_image_sync(self.image_model, filled_prompt)
+                    image_url = image_result.get("url")
+                    output = f"[IMAGE: {image_url}]"
 
-                # Create judge input - show the complete filled prompt
-                judge_input = f"""
+                    # Store for display
+                    self.session.generated_images.append({
+                        "url": image_url,
+                        "prompt": filled_prompt,
+                        "revised_prompt": image_result.get("revised_prompt"),
+                        "eval_round": self.eval_count
+                    })
+
+                    revised = image_result.get("revised_prompt") or ""
+                    self.session.log(f"Generated image", {
+                        "image_url": image_url[:80] + "..." if len(image_url) > 80 else image_url,
+                        "revised_prompt": revised[:100] if revised else ""
+                    })
+
+                    # Judge using vision model
+                    judge_vision_prompt = f"""{self.judge_prompt}
+
+The image was generated from this prompt:
+{filled_prompt}
+
+Please evaluate the image quality and provide:
+1. A score from 0-100
+2. Specific feedback on what could be improved in the prompt to generate a better image
+
+Format your response as:
+SCORE: [number]
+FEEDBACK: [your detailed feedback]
+"""
+                    self.session.log(f"Calling vision judge", {
+                        "judge_model": f"{self.judge_model.provider}/{self.judge_model.model}",
+                        "image_url_preview": image_url[:60] + "..." if len(image_url) > 60 else image_url
+                    })
+
+                    judge_response = call_vision_llm_sync(
+                        self.judge_model,
+                        judge_vision_prompt,
+                        image_url=image_url
+                    )
+
+                    self.session.log(f"Vision judge response", {
+                        "response_preview": judge_response[:200] + "..." if judge_response and len(judge_response) > 200 else judge_response
+                    })
+
+                    outputs.append(output)
+
+                # === TEXT MODE: Standard text generation and judging ===
+                else:
+                    output = call_llm_sync(self.task_model, filled_prompt)
+                    outputs.append(output)
+
+                    # Create judge input - show the complete filled prompt
+                    judge_input = f"""
 Prompt (with data filled in):
 {filled_prompt}
 
@@ -499,28 +833,36 @@ Format your response as:
 SCORE: [number]
 FEEDBACK: [your detailed feedback]
 """
+                    # Run Prompt Y (judge) to get evaluation Z
+                    judge_response = call_llm_sync(self.judge_model, self.judge_prompt, judge_input)
 
-                # Run Prompt Y (judge) to get evaluation Z
-                judge_response = call_llm_sync(self.judge_model, self.judge_prompt, judge_input)
-
-                # Parse score
+                # Parse score (same for both modes)
                 score = 0.5  # default normalized score
                 try:
-                    for line in judge_response.split('\n'):
-                        if line.strip().upper().startswith('SCORE:'):
-                            score_str = line.split(':')[1].strip()
-                            raw_score = float(score_str.replace('%', ''))
-                            score = raw_score / 100.0  # Normalize to 0-1
-                            break
-                except:
-                    pass
+                    if judge_response:
+                        for line in judge_response.split('\n'):
+                            if line.strip().upper().startswith('SCORE:'):
+                                score_str = line.split(':')[1].strip()
+                                raw_score = float(score_str.replace('%', ''))
+                                score = raw_score / 100.0  # Normalize to 0-1
+                                break
+                    else:
+                        self.session.log("Warning: No judge response received")
+                except Exception as parse_err:
+                    self.session.log(f"Warning: Could not parse score from judge response: {str(parse_err)}")
 
                 scores.append(score)
 
+                # Update the stored image with its score (for image mode)
+                if is_image_mode and self.session.generated_images:
+                    # Update the last added image with its score
+                    self.session.generated_images[-1]["score"] = round(score * 100, 1)
+
                 self.session.log(f"Test evaluation", {
-                    "input": item.input_text[:50] + "...",
-                    "output": output[:100] + "...",
-                    "score": round(score * 100, 1)
+                    "input": item.input_text[:50] + "..." if item.input_text else "(empty)",
+                    "output": output[:100] + "..." if output else "(empty)",
+                    "score": round(score * 100, 1),
+                    "is_image": is_image_mode
                 })
 
                 if capture_traces:
@@ -628,6 +970,7 @@ class GEPAProgressLogger:
 
 def _populate_stopped_results(session: EvolutionSession, seed_prompt: str):
     """Populate session.candidates with available results when stopped early."""
+    session.log("=== _populate_stopped_results CALLED ===")
     candidates = []
 
     # Add seed prompt with initial score if available
@@ -661,6 +1004,32 @@ def _populate_stopped_results(session: EvolutionSession, seed_prompt: str):
     candidates.sort(key=lambda x: -x["score"])
     session.candidates = candidates
 
+    # LLM retemplatization for stopped evolutions too
+    session.log("=== STOP: Checking LLM retemplatization conditions ===", {
+        "has_best": bool(session.best_candidate),
+        "has_original": bool(session.original_seed_prompt),
+        "has_model": bool(session.reflection_model),
+        "num_variables": len(session.template_variables) if session.template_variables else 0,
+        "variables": session.template_variables[:3] if session.template_variables else []  # First 3 only
+    })
+
+    if session.best_candidate and session.original_seed_prompt and session.reflection_model and session.template_variables:
+        session.log("Running LLM retemplatization for stopped evolution...")
+        try:
+            session.retemplatized_candidate = llm_retemplatize_variables(
+                session.original_seed_prompt,
+                session.best_candidate,
+                session.reflection_model
+            )
+            session.log("LLM retemplatization completed", {
+                "variables_restored": session.template_variables
+            })
+        except Exception as e:
+            session.log(f"LLM retemplatization failed, using fallback: {str(e)}")
+            session.retemplatized_candidate = reattach_variable_sections(
+                session.best_candidate, session.variable_sections
+            )
+
     if candidates:
         session.log("Returning results from stopped evolution", {
             "num_candidates": len(candidates),
@@ -676,12 +1045,23 @@ def run_gepa_evolution(session: EvolutionSession):
     session.status = "running"
     session.is_running = True
 
+    # Set output type from config
+    session.output_type = config.output_type or "text"
+
     try:
         # Prepare training data
-        trainset = [
-            TestInput(input_text=text, id=i)
-            for i, text in enumerate(config.test_inputs)
-        ]
+        # For image mode without specific inputs, use empty placeholder
+        if config.output_type == "image" and (not config.test_inputs or config.test_inputs == ['']):
+            trainset = [TestInput(input_text="", id=0)]
+        else:
+            trainset = [
+                TestInput(input_text=text, id=i)
+                for i, text in enumerate(config.test_inputs)
+            ]
+
+        # Store original seed prompt and reflection model for LLM retemplatization later
+        session.original_seed_prompt = config.seed_prompt
+        session.reflection_model = config.reflection_model or config.judge_model
 
         # STRATEGY: Extract variable lines BEFORE evolution, re-attach AFTER
         # This ensures {{variables}} are preserved even when GEPA restructures the prompt
@@ -710,16 +1090,22 @@ def run_gepa_evolution(session: EvolutionSession):
             "system_prompt": clean_template
         }
 
-        # Create custom adapter with LLM-as-Judge
+        # Create custom adapter with LLM-as-Judge (and optional image model)
         adapter = LLMJudgeAdapter(
             task_model=config.task_model,
             judge_model=config.judge_model,
             judge_prompt=config.judge_prompt,
-            session=session
+            session=session,
+            image_model=config.image_model
         )
 
-        # Determine reflection model
-        reflection_model_config = config.reflection_model or config.judge_model
+        session.log(f"Starting {'image' if session.output_type == 'image' else 'text'} evolution", {
+            "output_type": session.output_type,
+            "has_image_model": config.image_model is not None
+        })
+
+        # Determine reflection model for GEPA
+        reflection_model_config = session.reflection_model  # Already set earlier
         reflection_lm = get_litellm_model_string(reflection_model_config)
 
         # Set API key for reflection model
@@ -800,6 +1186,31 @@ def run_gepa_evolution(session: EvolutionSession):
             best_score = result.val_aggregate_scores[result.best_idx] if result.val_aggregate_scores else 0
             session.best_score = best_score * 100
 
+        # LLM retemplatization: intelligently place {{variables}} back into evolved prompt
+        session.log("Checking LLM retemplatization conditions", {
+            "has_original_seed": bool(session.original_seed_prompt),
+            "has_reflection_model": bool(session.reflection_model),
+            "template_variables": session.template_variables,
+            "num_variables": len(session.template_variables) if session.template_variables else 0
+        })
+        if session.original_seed_prompt and session.reflection_model and session.template_variables:
+            session.log("Running LLM retemplatization to restore variables...")
+            try:
+                session.retemplatized_candidate = llm_retemplatize_variables(
+                    session.original_seed_prompt,
+                    session.best_candidate,
+                    session.reflection_model
+                )
+                session.log("LLM retemplatization completed", {
+                    "variables_restored": session.template_variables
+                })
+            except Exception as e:
+                session.log(f"LLM retemplatization failed, using fallback: {str(e)}")
+                # Fallback to simple reattachment
+                session.retemplatized_candidate = reattach_variable_sections(
+                    session.best_candidate, session.variable_sections
+                )
+
         session.log("GEPA optimization completed!", {
             "best_score": session.best_score,
             "total_candidates": len(result.candidates),
@@ -842,8 +1253,11 @@ async def get_evolution_status(session_id: str):
     restored_candidate = None
 
     if best_candidate:
+        # Use LLM-retemplatized version if available (best quality)
+        if session.retemplatized_candidate:
+            restored_candidate = session.retemplatized_candidate
         # Re-attach extracted variable sections (e.g., "Current context: {{context}}")
-        if session.variable_sections:
+        elif session.variable_sections:
             restored_candidate = reattach_variable_sections(best_candidate, session.variable_sections)
         else:
             # Fallback: try marker conversion
@@ -877,6 +1291,8 @@ async def get_evolution_status(session_id: str):
         "template_mapping": session.template_mapping,
         "template_variables": session.template_variables,
         "candidates": restored_candidates,
+        "output_type": session.output_type,
+        "generated_images": session.generated_images,  # For image mode
     }
 
 
@@ -910,8 +1326,11 @@ async def stream_evolution(session_id: str):
             restored_candidate = None
 
             if best_candidate:
+                # Use LLM-retemplatized version if available (best quality)
+                if session.retemplatized_candidate:
+                    restored_candidate = session.retemplatized_candidate
                 # Re-attach extracted variable sections
-                if session.variable_sections:
+                elif session.variable_sections:
                     restored_candidate = reattach_variable_sections(best_candidate, session.variable_sections)
                 else:
                     # Fallback: try marker conversion
@@ -945,9 +1364,12 @@ async def stream_evolution(session_id: str):
                     "template_mapping": session.template_mapping,
                     "template_variables": session.template_variables,
                     "candidates": restored_candidates,
+                    "output_type": session.output_type,
+                    "generated_images": session.generated_images,
                 })
             }
 
+            # Only break when fully done (not "stopping" - wait for thread to finish)
             if session.status in ["completed", "error", "stopped"]:
                 break
 
@@ -964,39 +1386,67 @@ async def stop_evolution(session_id: str):
 
     session = evolution_sessions[session_id]
     session.is_running = False
-    session.status = "stopped"
+    # Don't set status to "stopped" here - let the GEPA thread do it
+    # after it finishes processing (including LLM retemplatization)
+    session.status = "stopping"  # Intermediate status
+    session.log("Stop requested by user")
     return {"message": "Stop requested"}
 
 
 @app.get("/api/providers")
 async def get_providers():
-    """Get list of supported model providers"""
+    """Get list of supported model providers including vision and image generation models"""
     return {
         "providers": [
             {
                 "id": "openai",
                 "name": "OpenAI",
-                "models": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"]
+                "models": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
+                "vision_models": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
+                "supports_vision": True
             },
             {
                 "id": "anthropic",
                 "name": "Anthropic",
-                "models": ["claude-opus-4-20250514", "claude-sonnet-4-20250514", "claude-3-5-sonnet-20241022", "claude-3-haiku-20240307"]
+                "models": ["claude-opus-4-20250514", "claude-sonnet-4-20250514", "claude-3-5-sonnet-20241022", "claude-3-haiku-20240307"],
+                "vision_models": ["claude-opus-4-20250514", "claude-sonnet-4-20250514", "claude-3-5-sonnet-20241022", "claude-3-haiku-20240307"],
+                "supports_vision": True
             },
             {
                 "id": "google",
                 "name": "Google",
-                "models": ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-pro"]
+                "models": ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-pro"],
+                "vision_models": ["gemini-1.5-pro", "gemini-1.5-flash"],
+                "supports_vision": True
             },
             {
                 "id": "mistral",
                 "name": "Mistral",
-                "models": ["mistral-large-latest", "mistral-medium-latest", "mistral-small-latest"]
+                "models": ["mistral-large-latest", "mistral-medium-latest", "mistral-small-latest"],
+                "supports_vision": False
             },
             {
                 "id": "groq",
                 "name": "Groq",
-                "models": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama3-70b-8192", "gemma2-9b-it"]
+                "models": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama3-70b-8192", "gemma2-9b-it"],
+                "vision_models": ["meta-llama/llama-4-scout-17b-16e-instruct", "meta-llama/llama-4-maverick-17b-128e-instruct", "llama-3.2-90b-vision-preview", "llama-3.2-11b-vision-preview"],
+                "supports_vision": True
+            }
+        ],
+        "image_providers": [
+            {
+                "id": "replicate",
+                "name": "Replicate",
+                "models": [
+                    {"id": "flux-1.1-pro", "name": "Flux 1.1 Pro (Best quality)"},
+                    {"id": "flux-schnell", "name": "Flux Schnell (Fast)"},
+                    {"id": "flux-dev", "name": "Flux Dev"},
+                    {"id": "sdxl", "name": "Stable Diffusion XL"},
+                    {"id": "sd-3", "name": "Stable Diffusion 3"},
+                    {"id": "imagen-3", "name": "Google Imagen 3"},
+                    {"id": "ideogram", "name": "Ideogram v2"},
+                    {"id": "recraft-v3", "name": "Recraft v3"}
+                ]
             }
         ]
     }
@@ -1008,6 +1458,7 @@ class GenerateTestInputsRequest(BaseModel):
     seed_prompt: str
     num_inputs: int = 5
     model: ModelConfig
+    additional_instructions: Optional[str] = None
 
 
 @app.post("/api/generate-test-inputs")
@@ -1021,11 +1472,16 @@ async def generate_test_inputs(request: GenerateTestInputsRequest):
     if variables:
         variables_hint = f"\n\nDetected template variables: {', '.join(variables)}. Generate sample data that would fill these variables."
 
+    # Add user's additional instructions if provided
+    user_instructions = ""
+    if request.additional_instructions:
+        user_instructions = f"\n\nADDITIONAL USER INSTRUCTIONS:\n{request.additional_instructions}"
+
     meta_prompt = f"""Analyze this prompt template and generate {request.num_inputs} diverse, realistic SAMPLE DATA sets that would be used with it.
 
 The prompt template:
 {request.seed_prompt}
-{variables_hint}
+{variables_hint}{user_instructions}
 
 Generate sample data that:
 1. Matches what this template expects (e.g., if it classifies UI components, generate sample HTML/component data)
@@ -1051,8 +1507,46 @@ Example for a UI classifier: ["<button class='btn'>Submit</button>\\n<input type
         import re
         match = re.search(r'\[.*\]', content, re.DOTALL)
         if match:
-            test_inputs = json.loads(match.group())
-            return {"test_inputs": test_inputs}
+            json_str = match.group()
+
+            # Try parsing as-is first
+            try:
+                test_inputs = json.loads(json_str)
+                return {"test_inputs": test_inputs}
+            except json.JSONDecodeError:
+                pass
+
+            # Fix common issues: escape control characters inside strings
+            # Replace actual newlines/tabs with escaped versions (but not between array elements)
+            try:
+                # More robust: use a regex to fix unescaped control chars inside strings
+                def fix_control_chars(s):
+                    # Replace unescaped control characters
+                    s = s.replace('\n', '\\n')
+                    s = s.replace('\r', '\\r')
+                    s = s.replace('\t', '\\t')
+                    return s
+
+                fixed_json = fix_control_chars(json_str)
+                test_inputs = json.loads(fixed_json)
+                return {"test_inputs": test_inputs}
+            except json.JSONDecodeError:
+                pass
+
+            # Last resort: split by common patterns and clean up
+            try:
+                # Try to extract strings manually
+                string_pattern = r'"([^"]*)"'
+                strings = re.findall(string_pattern, json_str, re.DOTALL)
+                if strings:
+                    # Clean each string
+                    cleaned = [s.replace('\n', '\\n').replace('\r', '').replace('\t', '  ') for s in strings]
+                    return {"test_inputs": cleaned}
+            except Exception:
+                pass
+
+            # Final fallback: return raw content
+            return {"test_inputs": [content]}
         else:
             return {"test_inputs": [content]}
 

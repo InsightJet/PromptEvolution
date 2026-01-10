@@ -8,3 +8,4 @@ litellm
 pydantic
 sse-starlette
 httpx
+replicate
