@@ -437,46 +437,130 @@ def llm_retemplatize_variables(
     if has_json_examples:
         print("[Retemplatize] Detected JSON examples with variables - using preservation strategy")
 
-        # Find the OUTPUT FORMAT section in original
-        output_format_match = re.search(r'(#\s*OUTPUT FORMAT.*?)(?=\n─{10,}|$)', original_prompt, re.DOTALL | re.IGNORECASE)
-        original_output_section = output_format_match.group(1) if output_format_match else ""
+        result = evolved_prompt
 
-        # Find the same section in evolved (may have different content)
-        evolved_output_match = re.search(r'(#\s*OUTPUT FORMAT.*?)(?=\n─{10,}|$)', evolved_prompt, re.DOTALL | re.IGNORECASE)
+        # Strategy: Find each line in original that contains a variable and ensure
+        # the evolved version has a similar line with the variable intact
 
-        if original_output_section and evolved_output_match:
-            # Replace evolved OUTPUT FORMAT with original (to preserve variables in JSON)
-            result = evolved_prompt[:evolved_output_match.start()] + original_output_section + evolved_prompt[evolved_output_match.end():]
-            print("[Retemplatize] Preserved original OUTPUT FORMAT section with variables")
-        else:
-            result = evolved_prompt
+        # Build a map of variable -> original lines containing it
+        var_to_original_lines = {}
+        for var in unique_vars:
+            var_pattern = '{{' + var + '}}'
+            matching_lines = []
+            for line in original_prompt.split('\n'):
+                if var_pattern in line:
+                    matching_lines.append(line)
+            var_to_original_lines[var] = matching_lines
+            print(f"[Retemplatize] Variable {{{{{var}}}}} found in {len(matching_lines)} original lines")
 
-        # Also preserve CONTEXT section variables
-        context_patterns = [
-            (r'Current stage_count = \{\{stage_count\}\}', 'Current stage_count = {{stage_count}}'),
-            (r'Stage Count:.*?\{\{stage_count\}\}', '- Stage Count: {{stage_count}} (0 = fresh session, >0 = already on page)'),
-            (r'Workflow Type:.*?\{\{workflow_type\}\}', '- Workflow Type: {{workflow_type}}'),
-            (r'State URL:.*?\{\{state_url\}\}', '- State URL: {{state_url}}'),
-            (r'Intent:.*?\{\{intent_label\}\}.*?\{\{intent_goal\}\}', '- Intent: {{intent_label}} - {{intent_goal}}'),
-            (r'Scope Type:.*?\{\{scope_type\}\}', '- Scope Type: {{scope_type}}'),
-        ]
+        # For each variable, check if it exists in evolved. If not, try to restore it.
+        for var in unique_vars:
+            var_pattern = '{{' + var + '}}'
+            if var_pattern not in result:
+                print(f"[Retemplatize] Variable {{{{{var}}}}} missing from evolved - attempting restoration")
+
+                # Get original lines with this variable
+                original_lines = var_to_original_lines.get(var, [])
+
+                for orig_line in original_lines:
+                    # Try to find a similar line in evolved (without the variable)
+                    # Remove the variable to get the "skeleton" of the line
+                    skeleton = orig_line.replace(var_pattern, '').strip()
+
+                    # Look for lines in evolved that match the skeleton pattern
+                    if len(skeleton) > 10:  # Only if meaningful content remains
+                        # Try exact match first
+                        if skeleton in result and var_pattern not in result:
+                            result = result.replace(skeleton, orig_line.strip(), 1)
+                            print(f"[Retemplatize] Restored line with {{{{{var}}}}} via skeleton match")
+                            break
+
+                        # Try finding by key phrases
+                        key_phrases = {
+                            'stage_count': ['Current stage_count', 'stage_count =', 'Stage Count:'],
+                            'remaining_actions_json': ['REMAINING ACTIONS:', '## REMAINING ACTIONS'],
+                            'component_map_reference': ['COMPONENT MAP', 'componentId reference'],
+                            'workflow_type': ['Workflow Type:'],
+                            'state_url': ['State URL:', 'Navigate to', '"url":'],
+                            'intent_label': ['Intent:', 'intent_label'],
+                            'intent_goal': ['Intent:', 'intent_goal'],
+                            'scope_type': ['Scope Type:', 'scopeType'],
+                        }
+
+                        phrases_to_try = key_phrases.get(var, [])
+                        for phrase in phrases_to_try:
+                            if phrase in result:
+                                # Find the line in evolved that contains this phrase
+                                evolved_lines = result.split('\n')
+                                for i, eline in enumerate(evolved_lines):
+                                    if phrase in eline and var_pattern not in eline:
+                                        # Replace this line with the original line
+                                        evolved_lines[i] = orig_line
+                                        result = '\n'.join(evolved_lines)
+                                        print(f"[Retemplatize] Restored {{{{{var}}}}} via phrase '{phrase}'")
+                                        break
+                                break
+
+        # Special handling: preserve entire OUTPUT FORMAT section for JSON examples
+        output_format_match = re.search(r'(#\s*OUTPUT FORMAT.*?)(?=\n─{10,}|\nIMPORTANT:|$)', original_prompt, re.DOTALL | re.IGNORECASE)
+        if output_format_match:
+            original_output_section = output_format_match.group(1)
+            evolved_output_match = re.search(r'(#\s*OUTPUT FORMAT.*?)(?=\n─{10,}|\nIMPORTANT:|$)', result, re.DOTALL | re.IGNORECASE)
+            if evolved_output_match:
+                result = result[:evolved_output_match.start()] + original_output_section + result[evolved_output_match.end():]
+                print("[Retemplatize] Preserved original OUTPUT FORMAT section")
 
         # Check which variables are still missing
         result_vars = set(re.findall(r'\{\{(\w+)\}\}', result))
         missing = set(unique_vars) - result_vars
 
         if missing:
-            print(f"[Retemplatize] Still missing variables after preservation: {missing}")
-            # Add missing variables in a dedicated section
-            missing_section = "\n\n## INPUT DATA\n"
-            for var in missing:
-                missing_section += f"- {var}: {{{{{var}}}}}\n"
+            print(f"[Retemplatize] Still missing variables after restoration: {missing}")
 
-            # Insert before OUTPUT FORMAT or at end
-            if '# OUTPUT FORMAT' in result:
-                result = result.replace('# OUTPUT FORMAT', missing_section + '\n# OUTPUT FORMAT')
-            else:
-                result += missing_section
+            # Direct injection for critical variables
+            for var in list(missing):
+                original_lines = var_to_original_lines.get(var, [])
+                if original_lines:
+                    # Find appropriate place to inject
+                    first_original_line = original_lines[0]
+
+                    # Try to find section header in original that precedes this line
+                    orig_lines_list = original_prompt.split('\n')
+                    for i, line in enumerate(orig_lines_list):
+                        if line == first_original_line:
+                            # Look for preceding section header
+                            for j in range(i-1, max(0, i-10), -1):
+                                if orig_lines_list[j].startswith('#') or orig_lines_list[j].startswith('─'):
+                                    header = orig_lines_list[j]
+                                    if header in result:
+                                        # Inject after this header
+                                        result = result.replace(header, header + '\n' + first_original_line, 1)
+                                        print(f"[Retemplatize] Injected {{{{{var}}}}} after header")
+                                        missing.discard(var)
+                                        break
+                            break
+
+        # Final fallback: add remaining missing vars in dedicated section
+        result_vars = set(re.findall(r'\{\{(\w+)\}\}', result))
+        still_missing = set(unique_vars) - result_vars
+
+        if still_missing:
+            print(f"[Retemplatize] Final missing vars to add: {still_missing}")
+            # Insert the original lines directly before OUTPUT FORMAT
+            missing_lines = []
+            for var in still_missing:
+                original_lines = var_to_original_lines.get(var, [])
+                if original_lines:
+                    missing_lines.extend(original_lines)
+                else:
+                    missing_lines.append(f"- {var}: {{{{{var}}}}}")
+
+            if missing_lines:
+                injection = "\n" + "\n".join(missing_lines) + "\n"
+                if '# OUTPUT FORMAT' in result:
+                    result = result.replace('# OUTPUT FORMAT', injection + '# OUTPUT FORMAT')
+                else:
+                    result += injection
 
         # Final verification
         final_vars = set(re.findall(r'\{\{(\w+)\}\}', result))
@@ -488,9 +572,9 @@ def llm_retemplatize_variables(
             return result
         else:
             still_missing = set(unique_vars) - final_vars
-            print(f"[Retemplatize] WARNING: Still missing {still_missing}, using fallback")
-            # Use the original prompt as base and just keep the evolved instructional improvements
-            return original_prompt  # Safest fallback - return original unchanged
+            print(f"[Retemplatize] WARNING: Still missing {still_missing}, returning original")
+            # Use the original prompt as base - safest fallback
+            return original_prompt
 
     # For prompts WITHOUT JSON examples, use the standard LLM retemplatization
     var_info = {}
