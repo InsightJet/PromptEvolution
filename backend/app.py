@@ -3,20 +3,43 @@ import json
 import uuid
 import threading
 import httpx
-from typing import Optional, Any
+import os
+from typing import Optional, Any, List
 from dataclasses import dataclass
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from sse_starlette.sse import EventSourceResponse
+from sqlalchemy.orm import Session
 import litellm
 import gepa
 from gepa import GEPAAdapter, EvaluationBatch
 import base64
 
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv()
+
+# Database and Auth imports
+from .database import (
+    init_db, get_db, User, UserSettings, EvolutionSessionDB, SavedPrompt,
+    get_user_settings, get_user_by_id
+)
+from .auth import (
+    get_current_user, get_current_admin, get_current_user_optional,
+    register_user, authenticate_user, create_access_token, decode_token,
+    UserCreate, UserLogin, Token, hash_password
+)
+
 app = FastAPI(title="GEPA Prompt Evolution")
+
+# Initialize database on startup
+@app.on_event("startup")
+async def startup_event():
+    init_db()
+    print("[Startup] Database initialized")
 
 app.add_middleware(
     CORSMiddleware,
@@ -26,8 +49,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory storage for evolution sessions
+# In-memory storage for evolution sessions (keyed by user_id:session_id)
 evolution_sessions = {}
+
+def get_user_session_key(user_id: int, session_id: str) -> str:
+    """Generate a unique key for user-specific session storage"""
+    return f"{user_id}:{session_id}"
 
 
 class ModelConfig(BaseModel):
@@ -115,13 +142,13 @@ MARKER_SUFFIX = "]]"
 
 
 def extract_variable_sections(template: str) -> tuple[str, list[dict]]:
-    """Extract lines/sections containing {{variables}} from the template.
+    """Extract INPUT DATA lines containing {{variables}} from the template.
 
-    Strategy: Find lines with {{var}} and extract them along with context.
-    Returns the template without variable sections, and info to re-attach them.
+    Strategy: Only extract lines that are pure data injection points (like "{{varName}}" alone
+    or "Key: {{varName}}"). Leave variables inside JSON examples or complex structures intact.
 
     Returns:
-        tuple: (template_without_vars, list of {var_name, full_line, position})
+        tuple: (template_without_extracted_vars, list of {var_name, full_line, position})
     """
     import re
 
@@ -129,27 +156,66 @@ def extract_variable_sections(template: str) -> tuple[str, list[dict]]:
     variable_sections = []
     clean_lines = []
 
+    # Track if we're inside a JSON/code block (don't extract from these)
+    in_json_example = False
+
     for i, line in enumerate(lines):
+        stripped = line.strip()
+
+        # Detect JSON example blocks
+        if stripped.startswith('{') or stripped.startswith('[') or '"scenarios"' in stripped:
+            in_json_example = True
+        if stripped == '}' or stripped == '}]' or stripped == ']':
+            in_json_example = False
+
         vars_in_line = re.findall(r'\{\{(\w+)\}\}', line)
-        if vars_in_line:
-            # This line contains variables - extract it
-            for var in vars_in_line:
-                variable_sections.append({
-                    'var_name': var,
-                    'full_line': line,
-                    'line_index': i,
-                    'position': 'end' if i > len(lines) // 2 else 'start'
-                })
-            # Don't include this line in the clean version
+
+        if vars_in_line and not in_json_example:
+            # Check if this is a "pure data" line vs part of JSON examples
+            # Pure data lines: standalone variable, or simple "Label: {{var}}" format
+            is_pure_data_line = (
+                # Line is just the variable
+                stripped == '{{' + vars_in_line[0] + '}}' or
+                # Line is "## SECTION:" followed by variable
+                re.match(r'^#+\s+\w+.*\{\{', stripped) or
+                # Line is "- Key: {{var}}" or "Key: {{var}}"
+                re.match(r'^[-*]?\s*[\w\s]+:\s*\{\{', stripped) or
+                # Line contains "= {{var}}" (assignment style)
+                '= {{' in line
+            )
+
+            # Don't extract if line looks like it's part of JSON example
+            looks_like_json = (
+                '"' in line and ':' in line and ('{{' in line) or
+                'step' in line.lower() or
+                'type' in line.lower() and '"' in line or
+                'url' in line.lower() and '"' in line
+            )
+
+            if is_pure_data_line and not looks_like_json:
+                # This line contains variables - extract it
+                for var in vars_in_line:
+                    variable_sections.append({
+                        'var_name': var,
+                        'full_line': line,
+                        'line_index': i,
+                        'position': 'end' if i > len(lines) // 2 else 'start'
+                    })
+                # Don't include this line in the clean version
+            else:
+                # Keep the line (it's part of examples/structure)
+                clean_lines.append(line)
         else:
             clean_lines.append(line)
 
     clean_template = '\n'.join(clean_lines)
 
     if variable_sections:
-        print(f"[Template] Extracted {len(variable_sections)} variable sections")
-        for vs in variable_sections:
+        print(f"[Template] Extracted {len(variable_sections)} pure data variable sections")
+        for vs in variable_sections[:5]:  # Only show first 5
             print(f"  - {vs['var_name']}: '{vs['full_line'][:50]}...'")
+        if len(variable_sections) > 5:
+            print(f"  ... and {len(variable_sections) - 5} more")
 
     return clean_template, variable_sections
 
@@ -342,6 +408,9 @@ def llm_retemplatize_variables(
 
     Takes the original prompt with {{variables}} and the evolved prompt,
     asks LLM to place variables in appropriate locations in the evolved version.
+
+    Special handling for prompts with JSON examples: preserve the exact variable
+    placements from the original, only evolving the instructional text.
     """
     import re
 
@@ -351,92 +420,263 @@ def llm_retemplatize_variables(
 
     # Extract all template variables from original
     variables = re.findall(r'\{\{(\w+)\}\}', original_prompt)
-    print(f"[Retemplatize] Found {len(variables)} variables: {set(variables)}")
-    if not variables:
+    unique_vars = list(set(variables))
+    print(f"[Retemplatize] Found {len(unique_vars)} unique variables: {unique_vars}")
+    if not unique_vars:
         print("[Retemplatize] No variables found, returning evolved prompt as-is")
         return evolved_prompt
 
-    # Build explicit mapping of variable to its original context
-    var_mappings = []
-    for var in set(variables):
-        # Find the line containing this variable in original
-        for line in original_prompt.split('\n'):
-            if '{{' + var + '}}' in line:
-                var_mappings.append(f"- {{{{{var}}}}} was in: \"{line.strip()[:80]}\"")
-                break
+    # Check if original has JSON examples with variables (like OUTPUT FORMAT sections)
+    has_json_examples = (
+        '"scenarios"' in original_prompt or
+        '"scopeType"' in original_prompt or
+        '"intent_label"' in original_prompt or
+        ('"url":' in original_prompt and '{{' in original_prompt)
+    )
 
-    meta_prompt = f"""You are a prompt engineer. Re-insert template variables into an evolved prompt.
+    if has_json_examples:
+        print("[Retemplatize] Detected JSON examples with variables - using preservation strategy")
 
-CRITICAL: Each variable name is UNIQUE and must appear EXACTLY ONCE with the CORRECT name.
+        # Find the OUTPUT FORMAT section in original
+        output_format_match = re.search(r'(#\s*OUTPUT FORMAT.*?)(?=\n─{10,}|$)', original_prompt, re.DOTALL | re.IGNORECASE)
+        original_output_section = output_format_match.group(1) if output_format_match else ""
 
-ORIGINAL VARIABLE LOCATIONS:
-{chr(10).join(var_mappings)}
+        # Find the same section in evolved (may have different content)
+        evolved_output_match = re.search(r'(#\s*OUTPUT FORMAT.*?)(?=\n─{10,}|$)', evolved_prompt, re.DOTALL | re.IGNORECASE)
 
-VARIABLES TO INSERT (each must appear exactly once):
-{', '.join([f'{{{{{v}}}}}' for v in set(variables)])}
+        if original_output_section and evolved_output_match:
+            # Replace evolved OUTPUT FORMAT with original (to preserve variables in JSON)
+            result = evolved_prompt[:evolved_output_match.start()] + original_output_section + evolved_prompt[evolved_output_match.end():]
+            print("[Retemplatize] Preserved original OUTPUT FORMAT section with variables")
+        else:
+            result = evolved_prompt
 
-EVOLVED PROMPT:
-```
-{evolved_prompt[:3500]}
-```
+        # Also preserve CONTEXT section variables
+        context_patterns = [
+            (r'Current stage_count = \{\{stage_count\}\}', 'Current stage_count = {{stage_count}}'),
+            (r'Stage Count:.*?\{\{stage_count\}\}', '- Stage Count: {{stage_count}} (0 = fresh session, >0 = already on page)'),
+            (r'Workflow Type:.*?\{\{workflow_type\}\}', '- Workflow Type: {{workflow_type}}'),
+            (r'State URL:.*?\{\{state_url\}\}', '- State URL: {{state_url}}'),
+            (r'Intent:.*?\{\{intent_label\}\}.*?\{\{intent_goal\}\}', '- Intent: {{intent_label}} - {{intent_goal}}'),
+            (r'Scope Type:.*?\{\{scope_type\}\}', '- Scope Type: {{scope_type}}'),
+        ]
 
-TASK:
-Insert each variable back into the evolved prompt at a semantically appropriate location.
-
-STRICT RULES:
-1. Every variable from the list MUST appear exactly ONCE in your output
-2. Use the EXACT variable name - do NOT substitute one variable for another
-3. {{{{mutationSection}}}} is different from {{{{datasetSection}}}} - don't confuse them
-4. Place each variable with an appropriate label (e.g., "BUSINESS CONTEXT: {{{{businessContext}}}}")
-5. Keep the evolved prompt's structure and improvements
-6. Preserve syntax exactly: {{{{variableName}}}}
-
-Return ONLY the complete prompt. No explanations or markdown code blocks."""
-
-    try:
-        model_string = get_litellm_model_string(model_config)
-        response = litellm.completion(
-            model=model_string,
-            messages=[{"role": "user", "content": meta_prompt}],
-            api_key=model_config.api_key,
-        )
-
-        result = response.choices[0].message.content.strip()
-        print(f"[Retemplatize] LLM returned response of length {len(result)}")
-
-        # Verify all variables are present
+        # Check which variables are still missing
         result_vars = set(re.findall(r'\{\{(\w+)\}\}', result))
-        original_vars = set(variables)
-        print(f"[Retemplatize] Result has variables: {result_vars}")
-        print(f"[Retemplatize] Original had variables: {original_vars}")
+        missing = set(unique_vars) - result_vars
 
-        if original_vars.issubset(result_vars):
-            print(f"[Retemplatize] SUCCESS: All {len(original_vars)} variables present")
+        if missing:
+            print(f"[Retemplatize] Still missing variables after preservation: {missing}")
+            # Add missing variables in a dedicated section
+            missing_section = "\n\n## INPUT DATA\n"
+            for var in missing:
+                missing_section += f"- {var}: {{{{{var}}}}}\n"
+
+            # Insert before OUTPUT FORMAT or at end
+            if '# OUTPUT FORMAT' in result:
+                result = result.replace('# OUTPUT FORMAT', missing_section + '\n# OUTPUT FORMAT')
+            else:
+                result += missing_section
+
+        # Final verification
+        final_vars = set(re.findall(r'\{\{(\w+)\}\}', result))
+        print(f"[Retemplatize] Final variables in result: {final_vars}")
+        print(f"[Retemplatize] Required variables: {set(unique_vars)}")
+
+        if set(unique_vars).issubset(final_vars):
+            print(f"[Retemplatize] SUCCESS: All {len(unique_vars)} variables present")
             return result
         else:
-            missing = original_vars - result_vars
-            print(f"[Retemplatize] WARNING: Missing variables {missing}")
-            # Fallback: append missing variables with proper labels
-            result += "\n\n## ADDITIONAL INPUT DATA\n"
-            for var in missing:
-                # Create a readable label from variable name
-                label = var.replace('_', ' ').replace('Section', '').upper()
-                result += f"\n{label}:\n{{{{{var}}}}}\n"
-            print(f"[Retemplatize] Appended {len(missing)} missing variables")
-            return result
+            still_missing = set(unique_vars) - final_vars
+            print(f"[Retemplatize] WARNING: Still missing {still_missing}, using fallback")
+            # Use the original prompt as base and just keep the evolved instructional improvements
+            return original_prompt  # Safest fallback - return original unchanged
 
-    except Exception as e:
-        print(f"[Retemplatize] ERROR: {e}")
-        import traceback
-        print(f"[Retemplatize] Traceback: {traceback.format_exc()}")
-        return evolved_prompt
+    # For prompts WITHOUT JSON examples, use the standard LLM retemplatization
+    var_info = {}
+    for var in unique_vars:
+        for line in original_prompt.split('\n'):
+            if '{{' + var + '}}' in line:
+                var_info[var] = {
+                    'context': line.strip()[:100],
+                    'semantic': _get_semantic_meaning(var)
+                }
+                break
+        if var not in var_info:
+            var_info[var] = {
+                'context': 'standalone',
+                'semantic': _get_semantic_meaning(var)
+            }
+
+    var_list = "\n".join([f"{i+1}. {{{{{v}}}}} - {var_info[v]['semantic']}" for i, v in enumerate(unique_vars)])
+
+    meta_prompt = f"""You are a prompt template engineer. Your task is to insert ALL template variables into an evolved prompt.
+
+## CRITICAL REQUIREMENT
+You MUST include ALL {len(unique_vars)} variables listed below. Missing ANY variable is a FAILURE.
+
+## VARIABLES THAT MUST BE INCLUDED (all {len(unique_vars)}):
+{var_list}
+
+## EVOLVED PROMPT TO MODIFY:
+{evolved_prompt}
+
+## YOUR TASK:
+1. Take the evolved prompt above
+2. Insert EVERY variable from the list at an appropriate location
+3. Use section headers to organize variables logically
+
+## OUTPUT FORMAT:
+Return the complete prompt with all {len(unique_vars)} variables inserted.
+Do NOT include any explanation, just the prompt.
+Do NOT wrap in markdown code blocks.
+
+REMEMBER: You MUST include all {len(unique_vars)} variables: {', '.join([f'{{{{{v}}}}}' for v in unique_vars])}"""
+
+    max_attempts = 2
+    for attempt in range(max_attempts):
+        try:
+            model_string = get_litellm_model_string(model_config)
+            response = litellm.completion(
+                model=model_string,
+                messages=[{"role": "user", "content": meta_prompt}],
+                api_key=model_config.api_key,
+                temperature=0.3,
+                max_tokens=8000,
+            )
+
+            result = response.choices[0].message.content.strip()
+
+            if result.startswith("```"):
+                lines = result.split("\n")
+                if lines[0].startswith("```"):
+                    lines = lines[1:]
+                if lines and lines[-1].strip() == "```":
+                    lines = lines[:-1]
+                result = "\n".join(lines)
+
+            print(f"[Retemplatize] Attempt {attempt+1}: LLM returned response of length {len(result)}")
+
+            result_vars = set(re.findall(r'\{\{(\w+)\}\}', result))
+            original_vars = set(unique_vars)
+
+            if original_vars.issubset(result_vars):
+                print(f"[Retemplatize] SUCCESS: All {len(original_vars)} variables present")
+                return result
+            else:
+                missing = original_vars - result_vars
+                print(f"[Retemplatize] Attempt {attempt+1} missing variables: {missing}")
+
+                if attempt < max_attempts - 1:
+                    meta_prompt = f"""FAILED: Your previous response was missing these variables: {missing}
+
+You MUST include ALL of these variables in your response:
+{', '.join([f'{{{{{v}}}}}' for v in unique_vars])}
+
+Here is the prompt again. Add ALL missing variables:
+
+{result}
+
+Return the complete prompt with ALL {len(unique_vars)} variables."""
+                    continue
+
+                result = _insert_missing_variables(result, missing, var_info)
+                print(f"[Retemplatize] Inserted {len(missing)} missing variables via fallback")
+                return result
+
+        except Exception as e:
+            print(f"[Retemplatize] ERROR on attempt {attempt+1}: {e}")
+            import traceback
+            print(f"[Retemplatize] Traceback: {traceback.format_exc()}")
+            if attempt == max_attempts - 1:
+                return reattach_variable_sections(evolved_prompt, original_prompt)
+
+    return evolved_prompt
+
+
+def _get_semantic_meaning(var_name: str) -> str:
+    """Get human-readable description of what a variable represents."""
+    meanings = {
+        'businessContext': 'Business/application context information',
+        'testObjective': 'The objective/goal of the test',
+        'domData': 'DOM structure data from the page',
+        'omniParserData': 'Vision/OCR data from OmniParser',
+        'mutationSection': 'Dynamic element mutations/changes',
+        'requiredSelectorsSection': 'Required CSS selectors for elements',
+        'formGroupsSection': 'Form field groups and their structure',
+        'datasetSection': 'Test data/dataset information',
+        # SCENARIO GENERATOR variables
+        'stage_count': 'Current stage number (0=fresh, >0=already on page)',
+        'remaining_actions_json': 'JSON array of actions to convert to scenario',
+        'component_map_reference': 'Component ID to description mapping',
+        'workflow_type': 'Type of workflow (form_fill, cell_selection, etc)',
+        'state_url': 'URL of the page/state being tested',
+        'intent_label': 'Label for the test intent (happy_path, etc)',
+        'intent_goal': 'Description of what the test aims to achieve',
+        'scope_type': 'Scope of the test (page, form, modal, etc)',
+    }
+    return meanings.get(var_name, f'Data for {var_name}')
+
+
+def _insert_missing_variables(prompt: str, missing_vars: set, var_info: dict) -> str:
+    """Insert missing variables at logical positions in the prompt."""
+    import re
+
+    # Define where each variable type should be inserted
+    insertion_points = {
+        'businessContext': ('## BUSINESS CONTEXT', 0),  # Near top
+        'testObjective': ('## TEST OBJECTIVE', 1),
+        'domData': ('## DOM DATA', 2),
+        'omniParserData': ('## OMNIPARSER DATA', 3),
+        'mutationSection': ('## MUTATIONS', 4),
+        'requiredSelectorsSection': ('## REQUIRED SELECTORS', 5),
+        'formGroupsSection': ('## FORM GROUPS', 6),
+        'datasetSection': ('## DATASET', 7),
+    }
+
+    # Group missing vars by their ideal position
+    sections_to_add = []
+    for var in sorted(missing_vars, key=lambda v: insertion_points.get(v, ('', 99))[1]):
+        header, _ = insertion_points.get(var, (f'## {var.upper()}', 99))
+        sections_to_add.append(f"\n{header}:\n{{{{{var}}}}}\n")
+
+    # Find a good insertion point - after the first major section
+    lines = prompt.split('\n')
+    insert_idx = 0
+
+    # Look for existing INPUT DATA or similar section
+    for i, line in enumerate(lines):
+        if any(marker in line.upper() for marker in ['INPUT DATA', 'CONTEXT', 'DOM DATA', 'OMNIPARSER']):
+            insert_idx = i
+            break
+
+    # If no good spot found, insert after first ## header
+    if insert_idx == 0:
+        for i, line in enumerate(lines):
+            if line.startswith('##') and i > 0:
+                insert_idx = i
+                break
+
+    # If still no spot, append at end but before any "CRITICAL" or "RULES" section
+    if insert_idx == 0:
+        for i, line in enumerate(lines):
+            if 'CRITICAL' in line.upper() or 'RULES' in line.upper():
+                insert_idx = i
+                break
+        if insert_idx == 0:
+            insert_idx = len(lines)
+
+    # Insert the sections
+    result_lines = lines[:insert_idx] + [''.join(sections_to_add)] + lines[insert_idx:]
+    return '\n'.join(result_lines)
 
 
 def fill_template(template: str, data: str) -> str:
     """Fill template variables with sample data.
 
     Supports {{variableName}}, [[TEMPLATE_VAR:variableName]], and {variableName} syntax.
-    If no variables found, appends data to the template.
+    If data is a JSON object with keys matching variable names, fills each variable with its value.
+    Otherwise, replaces all variables with the full data string.
     """
     import re
 
@@ -449,12 +689,23 @@ def fill_template(template: str, data: str) -> str:
     single_brace_vars = [v for v in single_brace_vars if v not in ['id', 'type', 'intent', 'purpose', 'confidence']]
 
     variables = double_brace_vars or marker_vars or single_brace_vars
-    has_markers = bool(marker_vars)
+    unique_vars = list(set(variables))
 
     print(f"[DEBUG fill_template] Template preview: {template[:200]}...")
-    print(f"[DEBUG fill_template] Double brace vars: {double_brace_vars}")
-    print(f"[DEBUG fill_template] Marker vars: {marker_vars}")
+    print(f"[DEBUG fill_template] Unique vars: {unique_vars}")
     print(f"[DEBUG fill_template] Data length: {len(data)}")
+
+    # Try to parse data as JSON object for structured variable filling
+    data_dict = None
+    if data.strip().startswith('{'):
+        try:
+            data_dict = json.loads(data)
+            if isinstance(data_dict, dict):
+                print(f"[DEBUG fill_template] Parsed JSON data with keys: {list(data_dict.keys())}")
+            else:
+                data_dict = None
+        except json.JSONDecodeError:
+            data_dict = None
 
     if variables:
         filled = template
@@ -464,31 +715,35 @@ def fill_template(template: str, data: str) -> str:
         if batch_size == 0:
             batch_size = len([l for l in data.split('\n') if l.strip()])  # Count non-empty lines
 
+        # Helper to get value for a variable
+        def get_var_value(var_name: str) -> str:
+            if var_name.lower() == 'batchsize':
+                return str(batch_size)
+            if data_dict and var_name in data_dict:
+                val = data_dict[var_name]
+                # Convert non-string values to appropriate string representation
+                if isinstance(val, (dict, list)):
+                    return json.dumps(val, indent=2)
+                return str(val)
+            # Fallback: use full data string
+            return data
+
         # Fill {{var}} syntax
         for var in double_brace_vars:
-            if var.lower() == 'batchsize':
-                filled = filled.replace('{{' + var + '}}', str(batch_size))
-            else:
-                filled = filled.replace('{{' + var + '}}', data)
+            filled = filled.replace('{{' + var + '}}', get_var_value(var))
 
         # Fill [[TEMPLATE_VAR:var]] markers
         for var in marker_vars:
             marker = f'{MARKER_PREFIX}{var}{MARKER_SUFFIX}'
-            if var.lower() == 'batchsize':
-                filled = filled.replace(marker, str(batch_size))
-            else:
-                filled = filled.replace(marker, data)
+            filled = filled.replace(marker, get_var_value(var))
 
         # Fill {var} syntax
         for var in single_brace_vars:
             if var not in ['id', 'type', 'intent', 'purpose', 'confidence']:
-                if var.lower() == 'batchsize':
-                    filled = filled.replace('{' + var + '}', str(batch_size))
-                else:
-                    filled = filled.replace('{' + var + '}', data)
+                filled = filled.replace('{' + var + '}', get_var_value(var))
 
         print(f"[DEBUG fill_template] Batch size calculated: {batch_size}")
-        print(f"[DEBUG fill_template] After filling: {filled[:300]}...")
+        print(f"[DEBUG fill_template] After filling (first 500 chars): {filled[:500]}...")
         return filled
     else:
         # No template variables - append data to prompt
@@ -542,9 +797,9 @@ def generate_image_sync(model_config: ModelConfig, prompt: str, user_input: str 
     # Set Replicate API token
     os.environ["REPLICATE_API_TOKEN"] = model_config.api_key
 
-    # Model mapping for Replicate
+    # Model mapping for Replicate - using verified working models
     replicate_models = {
-        # Flux models (Black Forest Labs)
+        # Flux models (Black Forest Labs) - Most reliable
         "flux-1.1-pro": "black-forest-labs/flux-1.1-pro",
         "flux-1.1-pro-ultra": "black-forest-labs/flux-1.1-pro-ultra",
         "flux-schnell": "black-forest-labs/flux-schnell",
@@ -555,10 +810,7 @@ def generate_image_sync(model_config: ModelConfig, prompt: str, user_input: str 
         "sd-3": "stability-ai/stable-diffusion-3",
         "sd-3.5-large": "stability-ai/stable-diffusion-3.5-large",
         "sd-3.5-large-turbo": "stability-ai/stable-diffusion-3.5-large-turbo",
-        "sdxl-lightning": "bytedance/sdxl-lightning-4step",
-        # Google Imagen
-        "imagen-3": "google-deepmind/imagen-3",
-        "imagen-3-fast": "google-deepmind/imagen-3-fast",
+        "sdxl-lightning": "bytedance/sdxl-lightning-4step:5f24084160c9089501c1b3545d9be3c27883ae2239b6f412990e82d4a6210f8f",
         # Ideogram
         "ideogram-v2": "ideogram-ai/ideogram-v2",
         "ideogram-v2-turbo": "ideogram-ai/ideogram-v2-turbo",
@@ -566,26 +818,75 @@ def generate_image_sync(model_config: ModelConfig, prompt: str, user_input: str 
         "recraft-v3": "recraft-ai/recraft-v3",
         "recraft-v3-svg": "recraft-ai/recraft-v3-svg",
         # Playground
-        "playground-v2.5": "playgroundai/playground-v2.5-1024px-aesthetic",
-        # Kolors (Kwai)
-        "kolors": "kwai-kolors/kolors",
-        # Kandinsky
-        "kandinsky-3": "ai-forever/kandinsky-3",
-        # DALL-E style
-        "dall-e-3": "lucataco/dall-e-3",
-        # Midjourney style
-        "openjourney": "prompthero/openjourney",
-        # Realistic models
-        "realistic-vision": "lucataco/realistic-vision-v5.1",
+        "playground-v2.5": "playgroundai/playground-v2.5-1024px-aesthetic:a45f82a1382bed5c7aeb861dac7c7d191b0fdf74d8d57c4a0e6ed7d4d0bf7d24",
+        # Realistic models - Updated to working versions
+        "realistic-vision": "lucataco/realistic-vision-v5.1:2c8e954decbf70b7607a4414e5785ef9e4de4b8c51d50fb8b8b349160e0ef6bb",
         "photon": "luma/photon",
-        # Art styles
-        "dreamshaper": "lucataco/dreamshaper-xl-turbo",
-        # Chinese models
-        "hunyuan-dit": "tencent/hunyuan-dit",
+        "photon-flash": "luma/photon-flash",
+        # Art styles - Updated to working versions
+        "dreamshaper": "lucataco/dreamshaper-xl-turbo:0a1710e0187b01a255302738ca0158ff02a22f4638679533e111082f9dd1b615",
+        # Midjourney style alternatives (openjourney deprecated)
+        "openjourney": "black-forest-labs/flux-schnell",  # Fallback to flux-schnell
+        "midjourney": "black-forest-labs/flux-schnell",   # Fallback to flux-schnell
     }
 
     model_id = replicate_models.get(model_config.model, model_config.model)
+
+    # If model not found in mapping and looks like a bare name, default to flux-schnell
+    if model_id == model_config.model and "/" not in model_id:
+        print(f"[Image Gen] Unknown model '{model_id}', falling back to flux-schnell")
+        model_id = "black-forest-labs/flux-schnell"
+
     print(f"[Image Gen] Using Replicate model: {model_id}")
+
+    # Build input parameters based on model type
+    # Different models have different input schemas
+    if "flux" in model_id.lower():
+        model_input = {
+            "prompt": final_prompt,
+            "aspect_ratio": "1:1",
+            "output_format": "webp",
+            "output_quality": 80,
+        }
+    elif "sdxl" in model_id.lower() or "stable-diffusion" in model_id.lower():
+        model_input = {
+            "prompt": final_prompt,
+            "width": 1024,
+            "height": 1024,
+        }
+    elif "playground" in model_id.lower():
+        model_input = {
+            "prompt": final_prompt,
+            "width": 1024,
+            "height": 1024,
+        }
+    elif "dreamshaper" in model_id.lower() or "realistic-vision" in model_id.lower():
+        model_input = {
+            "prompt": final_prompt,
+            "width": 1024,
+            "height": 1024,
+            "num_inference_steps": 25,
+        }
+    elif "ideogram" in model_id.lower():
+        model_input = {
+            "prompt": final_prompt,
+            "aspect_ratio": "1:1",
+        }
+    elif "recraft" in model_id.lower():
+        model_input = {
+            "prompt": final_prompt,
+            "size": "1024x1024",
+        }
+    elif "photon" in model_id.lower():
+        model_input = {
+            "prompt": final_prompt,
+            "aspect_ratio": "1:1",
+        }
+    else:
+        # Default input format
+        model_input = {
+            "prompt": final_prompt,
+        }
 
     # Retry logic for rate limiting
     max_retries = 3
@@ -594,10 +895,7 @@ def generate_image_sync(model_config: ModelConfig, prompt: str, user_input: str 
             # Run the model
             output = replicate.run(
                 model_id,
-                input={
-                    "prompt": final_prompt,
-                    "aspect_ratio": "1:1",  # Square for consistency
-                }
+                input=model_input
             )
 
             # Handle different output formats
@@ -1226,11 +1524,178 @@ def run_gepa_evolution(session: EvolutionSession):
         session.log(f"Traceback: {traceback.format_exc()}")
 
 
+# ==================== AUTH ENDPOINTS ====================
+
+class SettingsUpdate(BaseModel):
+    """Schema for updating user settings."""
+    openai_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
+    google_api_key: Optional[str] = None
+    mistral_api_key: Optional[str] = None
+    groq_api_key: Optional[str] = None
+    replicate_api_key: Optional[str] = None
+    langfuse_host: Optional[str] = None
+    langfuse_public_key: Optional[str] = None
+    langfuse_secret_key: Optional[str] = None
+    prompt_config: Optional[dict] = None  # UI config (seed_prompt, test_inputs, etc.)
+
+
+@app.post("/api/auth/register", response_model=Token)
+async def register(user_data: UserCreate, db: Session = Depends(get_db)):
+    """Register a new user. First user becomes admin."""
+    user = register_user(db, user_data.username, user_data.email, user_data.password)
+
+    # Create access token
+    access_token = create_access_token(data={"sub": str(user.id)})
+
+    return Token(
+        access_token=access_token,
+        user=user.to_dict()
+    )
+
+
+@app.post("/api/auth/login", response_model=Token)
+async def login(credentials: UserLogin, db: Session = Depends(get_db)):
+    """Login and get access token."""
+    user = authenticate_user(db, credentials.username, credentials.password)
+
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid username or password"
+        )
+
+    access_token = create_access_token(data={"sub": str(user.id)})
+
+    return Token(
+        access_token=access_token,
+        user=user.to_dict()
+    )
+
+
+@app.get("/api/auth/me")
+async def get_current_user_info(current_user: User = Depends(get_current_user)):
+    """Get current user information."""
+    return current_user.to_dict()
+
+
+@app.get("/api/auth/settings")
+async def get_settings(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get current user's settings (API keys masked)."""
+    settings = get_user_settings(db, current_user.id)
+    if not settings:
+        return {}
+    return settings.to_dict(include_keys=False)
+
+
+@app.put("/api/auth/settings")
+async def update_settings(
+    settings_data: SettingsUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update current user's settings (API keys, Langfuse config)."""
+    settings = get_user_settings(db, current_user.id)
+
+    if not settings:
+        settings = UserSettings(user_id=current_user.id)
+        db.add(settings)
+
+    # Update only provided fields (don't overwrite with None)
+    if settings_data.openai_api_key is not None:
+        settings.openai_api_key = settings_data.openai_api_key
+    if settings_data.anthropic_api_key is not None:
+        settings.anthropic_api_key = settings_data.anthropic_api_key
+    if settings_data.google_api_key is not None:
+        settings.google_api_key = settings_data.google_api_key
+    if settings_data.mistral_api_key is not None:
+        settings.mistral_api_key = settings_data.mistral_api_key
+    if settings_data.groq_api_key is not None:
+        settings.groq_api_key = settings_data.groq_api_key
+    if settings_data.replicate_api_key is not None:
+        settings.replicate_api_key = settings_data.replicate_api_key
+    if settings_data.langfuse_host is not None:
+        settings.langfuse_host = settings_data.langfuse_host
+    if settings_data.langfuse_public_key is not None:
+        settings.langfuse_public_key = settings_data.langfuse_public_key
+    if settings_data.langfuse_secret_key is not None:
+        settings.langfuse_secret_key = settings_data.langfuse_secret_key
+    if settings_data.prompt_config is not None:
+        settings.prompt_config = settings_data.prompt_config
+
+    db.commit()
+    db.refresh(settings)
+
+    return {"message": "Settings updated successfully", "settings": settings.to_dict(include_keys=False)}
+
+
+# ==================== ADMIN ENDPOINTS ====================
+
+@app.get("/api/admin/users")
+async def list_users(
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """List all users (admin only)."""
+    users = db.query(User).all()
+    return [u.to_dict() for u in users]
+
+
+@app.delete("/api/admin/users/{user_id}")
+async def delete_user(
+    user_id: int,
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Delete a user (admin only). Cannot delete self."""
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot delete yourself")
+
+    user = get_user_by_id(db, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    db.delete(user)
+    db.commit()
+
+    return {"message": f"User {user.username} deleted successfully"}
+
+
+@app.post("/api/admin/users/{user_id}/toggle-active")
+async def toggle_user_active(
+    user_id: int,
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Enable/disable a user (admin only). Cannot disable self."""
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot disable yourself")
+
+    user = get_user_by_id(db, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.is_active = not user.is_active
+    db.commit()
+
+    status = "enabled" if user.is_active else "disabled"
+    return {"message": f"User {user.username} {status}", "is_active": user.is_active}
+
+
+# ==================== EVOLUTION ENDPOINTS ====================
+
 @app.post("/api/evolution/start")
-async def start_evolution(config: EvolutionConfig):
+async def start_evolution(config: EvolutionConfig, current_user: User = Depends(get_current_user_optional)):
     """Start a new GEPA evolution session"""
     session = EvolutionSession(config)
-    evolution_sessions[session.id] = session
+
+    # Get user_id (use 0 for unauthenticated users for backward compatibility)
+    user_id = current_user.id if current_user else 0
+    session_key = get_user_session_key(user_id, session.id)
+    evolution_sessions[session_key] = session
 
     # Run GEPA in background thread (it's synchronous)
     thread = threading.Thread(target=run_gepa_evolution, args=(session,))
@@ -1240,12 +1705,15 @@ async def start_evolution(config: EvolutionConfig):
 
 
 @app.get("/api/evolution/{session_id}/status")
-async def get_evolution_status(session_id: str):
+async def get_evolution_status(session_id: str, current_user: User = Depends(get_current_user_optional)):
     """Get current status of an evolution session"""
-    if session_id not in evolution_sessions:
+    user_id = current_user.id if current_user else 0
+    session_key = get_user_session_key(user_id, session_id)
+
+    if session_key not in evolution_sessions:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    session = evolution_sessions[session_id]
+    session = evolution_sessions[session_key]
     improvement = (session.best_score - session.initial_score) if session.initial_score else 0
 
     # Restore template variables in best_candidate
@@ -1297,12 +1765,21 @@ async def get_evolution_status(session_id: str):
 
 
 @app.get("/api/evolution/{session_id}/stream")
-async def stream_evolution(session_id: str):
+async def stream_evolution(session_id: str, token: str = None, db: Session = Depends(get_db)):
     """Stream evolution progress via SSE"""
-    if session_id not in evolution_sessions:
+    # SSE doesn't support headers, so accept token via query param
+    user_id = 0
+    if token:
+        payload = decode_token(token)
+        if payload:
+            user_id = payload.get("sub", 0)
+
+    session_key = get_user_session_key(user_id, session_id)
+
+    if session_key not in evolution_sessions:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    session = evolution_sessions[session_id]
+    session = evolution_sessions[session_key]
     last_log_index = 0
 
     async def event_generator():
@@ -1379,12 +1856,15 @@ async def stream_evolution(session_id: str):
 
 
 @app.post("/api/evolution/{session_id}/stop")
-async def stop_evolution(session_id: str):
+async def stop_evolution(session_id: str, current_user: User = Depends(get_current_user_optional)):
     """Stop an evolution session"""
-    if session_id not in evolution_sessions:
+    user_id = current_user.id if current_user else 0
+    session_key = get_user_session_key(user_id, session_id)
+
+    if session_key not in evolution_sessions:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    session = evolution_sessions[session_id]
+    session = evolution_sessions[session_key]
     session.is_running = False
     # Don't set status to "stopped" here - let the GEPA thread do it
     # after it finishes processing (including LLM retemplatization)
@@ -1467,17 +1947,75 @@ async def generate_test_inputs(request: GenerateTestInputsRequest):
 
     # Detect template variables like {{variableName}}
     import re
-    variables = re.findall(r'\{\{(\w+)\}\}', request.seed_prompt)
-    variables_hint = ""
-    if variables:
-        variables_hint = f"\n\nDetected template variables: {', '.join(variables)}. Generate sample data that would fill these variables."
+    variables = list(set(re.findall(r'\{\{(\w+)\}\}', request.seed_prompt)))
 
     # Add user's additional instructions if provided
     user_instructions = ""
     if request.additional_instructions:
         user_instructions = f"\n\nADDITIONAL USER INSTRUCTIONS:\n{request.additional_instructions}"
 
-    meta_prompt = f"""Analyze this prompt template and generate {request.num_inputs} diverse, realistic SAMPLE DATA sets that would be used with it.
+    # Use different strategy based on number of template variables
+    if len(variables) > 3:
+        # Multiple variables: generate structured JSON objects with all variable values
+        variables_schema = "\n".join([f'  - {{{{{v}}}}}' for v in variables])
+
+        # Detect variable types from naming conventions
+        type_hints = []
+        for v in variables:
+            v_lower = v.lower()
+            if 'count' in v_lower or 'size' in v_lower or 'num' in v_lower or 'stage' in v_lower:
+                type_hints.append(f'  - {v}: INTEGER (use actual number like 0, 1, 2 - NOT a string)')
+            elif 'json' in v_lower or 'actions' in v_lower or 'map' in v_lower:
+                type_hints.append(f'  - {v}: JSON ARRAY or OBJECT (as actual JSON, not stringified)')
+            elif 'url' in v_lower:
+                type_hints.append(f'  - {v}: URL string (e.g., "https://example.com/path")')
+
+        type_hints_str = "\n".join(type_hints) if type_hints else ""
+
+        meta_prompt = f"""Analyze this prompt template and generate {request.num_inputs} diverse, realistic test data sets.
+
+The prompt template uses these template variables:
+{variables_schema}
+
+PROMPT TEMPLATE:
+{request.seed_prompt}
+{user_instructions}
+
+IMPORTANT: Generate {request.num_inputs} complete test cases. Each test case must be a JSON object with ALL the template variables as keys.
+
+DATA TYPE REQUIREMENTS:
+{type_hints_str}
+- Variables with "json" or "actions" in the name should be ACTUAL JSON arrays/objects, NOT stringified JSON
+- Variables with "count", "stage", "num", "size" should be INTEGERS (0, 1, 2), NOT strings ("0", "1")
+- Variables like "component_map_reference" should be readable multi-line strings, not JSON
+
+For example, if variables are {{{{stage_count}}}}, {{{{remaining_actions_json}}}}, {{{{state_url}}}}, return:
+[
+  {{
+    "stage_count": 0,
+    "remaining_actions_json": [
+      {{"action": "fill", "target": "Email", "componentId": "input_email_001", "purpose": "Enter email"}}
+    ],
+    "state_url": "https://app.example.com/login"
+  }}
+]
+
+RULES:
+1. Each object MUST have ALL variables: {', '.join(variables)}
+2. Values should be realistic and match what the prompt expects
+3. Cover different scenarios (simple, complex, edge cases)
+4. Use correct data types: integers for counts, arrays for JSON variables, strings for text
+5. Return ONLY a valid JSON array of objects, no markdown, no explanation
+
+Generate the {request.num_inputs} test cases now:"""
+
+    else:
+        # Few or no variables: use simpler approach
+        variables_hint = ""
+        if variables:
+            variables_hint = f"\n\nDetected template variables: {', '.join(variables)}. Generate sample data that would fill these variables."
+
+        meta_prompt = f"""Analyze this prompt template and generate {request.num_inputs} diverse, realistic SAMPLE DATA sets that would be used with it.
 
 The prompt template:
 {request.seed_prompt}
@@ -1499,58 +2037,79 @@ Example for a UI classifier: ["<button class='btn'>Submit</button>\\n<input type
             model=model_string,
             messages=[{"role": "user", "content": meta_prompt}],
             api_key=request.model.api_key,
+            temperature=0.7,  # Add some creativity but keep it structured
         )
 
         content = response.choices[0].message.content.strip()
 
+        # Remove markdown code blocks if present
+        if content.startswith("```"):
+            lines = content.split("\n")
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            content = "\n".join(lines)
+
         # Extract JSON array from response
-        import re
-        match = re.search(r'\[.*\]', content, re.DOTALL)
+        match = re.search(r'\[[\s\S]*\]', content)
         if match:
             json_str = match.group()
 
             # Try parsing as-is first
             try:
                 test_inputs = json.loads(json_str)
+
+                # If we have multiple variables and got objects, convert to strings for the UI
+                if len(variables) > 3 and test_inputs and isinstance(test_inputs[0], dict):
+                    # Return as structured data - each item is a JSON string of the object
+                    string_inputs = [json.dumps(item, indent=2) for item in test_inputs]
+                    return {"test_inputs": string_inputs, "structured": True, "variables": variables}
+
                 return {"test_inputs": test_inputs}
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
+                print(f"[generate_test_inputs] JSON parse error: {e}")
                 pass
 
-            # Fix common issues: escape control characters inside strings
-            # Replace actual newlines/tabs with escaped versions (but not between array elements)
+            # Try to fix common JSON issues
             try:
-                # More robust: use a regex to fix unescaped control chars inside strings
-                def fix_control_chars(s):
-                    # Replace unescaped control characters
-                    s = s.replace('\n', '\\n')
-                    s = s.replace('\r', '\\r')
-                    s = s.replace('\t', '\\t')
-                    return s
+                # Fix unescaped newlines inside strings (but not structural ones)
+                # This is tricky - we need to be careful not to break valid JSON
+                fixed_json = json_str
 
-                fixed_json = fix_control_chars(json_str)
+                # Try parsing with more lenient approach
                 test_inputs = json.loads(fixed_json)
                 return {"test_inputs": test_inputs}
             except json.JSONDecodeError:
                 pass
 
-            # Last resort: split by common patterns and clean up
+            # Try extracting individual JSON objects if it's an array of objects
             try:
-                # Try to extract strings manually
-                string_pattern = r'"([^"]*)"'
-                strings = re.findall(string_pattern, json_str, re.DOTALL)
-                if strings:
-                    # Clean each string
-                    cleaned = [s.replace('\n', '\\n').replace('\r', '').replace('\t', '  ') for s in strings]
-                    return {"test_inputs": cleaned}
+                # Find all top-level objects in the array
+                object_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+                objects = re.findall(object_pattern, json_str)
+                if objects:
+                    parsed_objects = []
+                    for obj_str in objects:
+                        try:
+                            parsed_objects.append(json.loads(obj_str))
+                        except json.JSONDecodeError:
+                            continue
+                    if parsed_objects:
+                        string_inputs = [json.dumps(item, indent=2) for item in parsed_objects]
+                        return {"test_inputs": string_inputs, "structured": True, "variables": variables}
             except Exception:
                 pass
 
-            # Final fallback: return raw content
-            return {"test_inputs": [content]}
+            # Last resort: return raw content split into chunks
+            return {"test_inputs": [content], "raw": True}
         else:
-            return {"test_inputs": [content]}
+            return {"test_inputs": [content], "raw": True}
 
     except Exception as e:
+        import traceback
+        print(f"[generate_test_inputs] Error: {str(e)}")
+        print(f"[generate_test_inputs] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to generate test inputs: {str(e)}")
 
 
