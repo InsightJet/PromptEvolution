@@ -1621,6 +1621,8 @@ class SettingsUpdate(BaseModel):
     langfuse_host: Optional[str] = None
     langfuse_public_key: Optional[str] = None
     langfuse_secret_key: Optional[str] = None
+    langsmith_api_key: Optional[str] = None
+    langsmith_project: Optional[str] = None
     prompt_config: Optional[dict] = None  # UI config (seed_prompt, test_inputs, etc.)
 
 
@@ -1707,6 +1709,10 @@ async def update_settings(
         settings.langfuse_public_key = settings_data.langfuse_public_key
     if settings_data.langfuse_secret_key is not None:
         settings.langfuse_secret_key = settings_data.langfuse_secret_key
+    if settings_data.langsmith_api_key is not None:
+        settings.langsmith_api_key = settings_data.langsmith_api_key
+    if settings_data.langsmith_project is not None:
+        settings.langsmith_project = settings_data.langsmith_project
     if settings_data.prompt_config is not None:
         settings.prompt_config = settings_data.prompt_config
 
@@ -2381,6 +2387,681 @@ async def save_prompt_to_langfuse(request: SavePromptRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save prompt: {str(e)}")
+
+
+# ===== LANGSMITH INTEGRATION =====
+
+class LangSmithConfig(BaseModel):
+    api_key: str
+    project_name: Optional[str] = None
+    base_url: str = "https://api.smith.langchain.com"
+
+
+def get_langsmith_headers(config: LangSmithConfig) -> dict:
+    """Create headers for LangSmith API"""
+    return {"x-api-key": config.api_key}
+
+
+@app.post("/api/langsmith/projects")
+async def list_langsmith_projects(config: LangSmithConfig):
+    """List all projects from LangSmith"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{config.base_url}/api/v1/sessions",  # sessions = projects in LangSmith
+                headers=get_langsmith_headers(config),
+                params={"limit": 100}
+            )
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"LangSmith API error: {e.response.text}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch projects: {str(e)}")
+
+
+@app.post("/api/langsmith/runs")
+async def list_langsmith_runs(
+    config: LangSmithConfig,
+    project_name: Optional[str] = None,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    run_type: Optional[str] = None,
+    error_only: bool = False,
+    limit: int = 100
+):
+    """Fetch runs (traces) from LangSmith"""
+    try:
+        project = project_name or config.project_name
+        if not project:
+            raise HTTPException(status_code=400, detail="Project name is required")
+
+        params = {
+            "limit": limit,
+        }
+
+        # Build filter string for LangSmith
+        filters = []
+        if error_only:
+            filters.append("has(error, true)")
+        if start_time:
+            filters.append(f"gte(start_time, {start_time})")
+        if end_time:
+            filters.append(f"lte(end_time, {end_time})")
+        if run_type:
+            filters.append(f"eq(run_type, {run_type})")
+
+        if filters:
+            params["filter"] = " and ".join(filters)
+
+        async with httpx.AsyncClient() as client:
+            # First get project ID
+            project_response = await client.get(
+                f"{config.base_url}/api/v1/sessions",
+                headers=get_langsmith_headers(config),
+                params={"name": project}
+            )
+            project_response.raise_for_status()
+            projects = project_response.json()
+
+            if not projects:
+                raise HTTPException(status_code=404, detail=f"Project '{project}' not found")
+
+            project_id = projects[0]["id"] if isinstance(projects, list) else projects.get("id")
+
+            # Now fetch runs for this project
+            response = await client.get(
+                f"{config.base_url}/api/v1/runs",
+                headers=get_langsmith_headers(config),
+                params={"session_id": project_id, **params}
+            )
+            response.raise_for_status()
+            return response.json()
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"LangSmith API error: {e.response.text}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch runs: {str(e)}")
+
+
+# ===== FEEDBACK & TRACE-DRIVEN EVOLUTION =====
+
+class ReportFailureRequest(BaseModel):
+    prompt_name: str
+    input_text: str
+    output_text: str
+    expected_output: Optional[str] = None
+    failure_category: Optional[str] = None
+    trace_id: Optional[str] = None
+    trace_source: Optional[str] = "manual"
+    session_id: Optional[str] = None
+    metadata: Optional[dict] = None
+
+
+class TraceSample(BaseModel):
+    """Unified trace sample from any source"""
+    trace_id: str
+    input: str
+    output: str
+    expected_output: Optional[str] = None
+    score: Optional[float] = None
+    feedback: Optional[str] = None
+    failure_category: Optional[str] = None
+    metadata: dict = {}
+
+
+class TraceFilterConfig(BaseModel):
+    """Filters for fetching traces"""
+    prompt_name: Optional[str] = None
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    min_score: Optional[float] = None
+    max_score: Optional[float] = None
+    tags: Optional[list[str]] = None
+    error_only: bool = False
+    limit: int = 50
+
+
+class TraceAnalysisRequest(BaseModel):
+    """Request for trace analysis"""
+    source: str  # "langfuse", "langsmith", "manual"
+    filters: TraceFilterConfig
+    langfuse_config: Optional[LangfuseConfig] = None
+    langsmith_config: Optional[LangSmithConfig] = None
+    analysis_model: Optional[ModelConfig] = None
+
+
+class TraceAnalysisResult(BaseModel):
+    """Result of trace analysis"""
+    total_traces: int
+    failing_traces: int
+    success_traces: int
+    failure_patterns: list[dict]
+    samples: list[TraceSample]
+    suggested_judge_criteria: str
+
+
+@app.post("/api/feedback/report-bad-output")
+async def report_bad_output(
+    request: ReportFailureRequest,
+    current_user: User = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    """Report a bad output for future evolution training"""
+    from backend.database import ReportedFailure
+
+    failure = ReportedFailure(
+        user_id=current_user.id if current_user else None,
+        prompt_name=request.prompt_name,
+        input_text=request.input_text,
+        output_text=request.output_text,
+        expected_output=request.expected_output,
+        failure_category=request.failure_category,
+        trace_id=request.trace_id,
+        trace_source=request.trace_source,
+        session_id=request.session_id,
+        extra_metadata=request.metadata
+    )
+
+    db.add(failure)
+    db.commit()
+    db.refresh(failure)
+
+    return {"success": True, "id": failure.id, "message": "Failure reported successfully"}
+
+
+@app.get("/api/feedback/failures/{prompt_name}")
+async def get_failures_for_prompt(
+    prompt_name: str,
+    unused_only: bool = True,
+    limit: int = 100,
+    current_user: User = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    """Get reported failures for a specific prompt"""
+    from backend.database import ReportedFailure
+
+    query = db.query(ReportedFailure).filter(ReportedFailure.prompt_name == prompt_name)
+
+    if current_user:
+        query = query.filter(ReportedFailure.user_id == current_user.id)
+
+    if unused_only:
+        query = query.filter(ReportedFailure.used_in_evolution == False)
+
+    failures = query.order_by(ReportedFailure.created_at.desc()).limit(limit).all()
+
+    return {
+        "prompt_name": prompt_name,
+        "count": len(failures),
+        "failures": [f.to_dict() for f in failures]
+    }
+
+
+@app.delete("/api/feedback/failures/{failure_id}")
+async def delete_failure(
+    failure_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a reported failure"""
+    from backend.database import ReportedFailure
+
+    failure = db.query(ReportedFailure).filter(
+        ReportedFailure.id == failure_id,
+        ReportedFailure.user_id == current_user.id
+    ).first()
+
+    if not failure:
+        raise HTTPException(status_code=404, detail="Failure not found")
+
+    db.delete(failure)
+    db.commit()
+
+    return {"success": True, "message": "Failure deleted"}
+
+
+def transform_langfuse_trace_to_sample(trace: dict) -> TraceSample:
+    """Convert a Langfuse trace to unified TraceSample"""
+    input_data = ""
+    output_data = ""
+
+    # Extract from trace structure
+    if "input" in trace:
+        input_data = json.dumps(trace["input"]) if isinstance(trace["input"], dict) else str(trace["input"])
+    if "output" in trace:
+        output_data = json.dumps(trace["output"]) if isinstance(trace["output"], dict) else str(trace["output"])
+
+    # Check observations for generation data
+    if "observations" in trace:
+        for obs in trace.get("observations", []):
+            if obs.get("type") == "GENERATION":
+                if obs.get("input") and not input_data:
+                    input_data = json.dumps(obs["input"]) if isinstance(obs["input"], dict) else str(obs["input"])
+                if obs.get("output") and not output_data:
+                    output_data = json.dumps(obs["output"]) if isinstance(obs["output"], dict) else str(obs["output"])
+                break
+
+    # Extract score
+    scores = trace.get("scores", {})
+    score = None
+    if isinstance(scores, dict):
+        score = scores.get("quality") or scores.get("accuracy") or scores.get("overall")
+    elif isinstance(scores, list) and scores:
+        score = scores[0].get("value")
+
+    # Extract feedback
+    feedback = None
+    if trace.get("metadata") and isinstance(trace["metadata"], dict):
+        feedback = trace["metadata"].get("user_feedback") or trace["metadata"].get("feedback")
+
+    return TraceSample(
+        trace_id=trace.get("id", ""),
+        input=input_data,
+        output=output_data,
+        score=score,
+        feedback=feedback,
+        metadata={"source": "langfuse", "name": trace.get("name"), "timestamp": trace.get("timestamp")}
+    )
+
+
+def transform_langsmith_run_to_sample(run: dict) -> TraceSample:
+    """Convert a LangSmith run to unified TraceSample"""
+    input_data = json.dumps(run.get("inputs", {})) if run.get("inputs") else ""
+    output_data = json.dumps(run.get("outputs", {})) if run.get("outputs") else ""
+
+    # Extract score from feedback
+    score = None
+    feedback_stats = run.get("feedback_stats", {})
+    if feedback_stats:
+        score = feedback_stats.get("avg") or feedback_stats.get("score")
+
+    # Extract feedback comments
+    feedback = None
+    feedbacks = run.get("feedback", [])
+    if feedbacks and isinstance(feedbacks, list):
+        feedback = feedbacks[0].get("comment") if feedbacks[0] else None
+
+    return TraceSample(
+        trace_id=run.get("id", ""),
+        input=input_data,
+        output=output_data,
+        score=score,
+        feedback=feedback,
+        metadata={
+            "source": "langsmith",
+            "run_type": run.get("run_type"),
+            "error": run.get("error"),
+            "latency_ms": run.get("total_time"),
+            "name": run.get("name")
+        }
+    )
+
+
+@app.post("/api/traces/fetch")
+async def fetch_traces(request: TraceAnalysisRequest):
+    """Fetch traces from specified source (Langfuse or LangSmith)"""
+    samples = []
+
+    if request.source == "langfuse":
+        if not request.langfuse_config:
+            raise HTTPException(status_code=400, detail="Langfuse config required")
+
+        # Fetch from Langfuse
+        params = {"limit": request.filters.limit}
+        if request.filters.prompt_name:
+            params["name"] = request.filters.prompt_name
+        if request.filters.start_time:
+            params["fromTimestamp"] = request.filters.start_time
+        if request.filters.end_time:
+            params["toTimestamp"] = request.filters.end_time
+        if request.filters.tags:
+            params["tags"] = ",".join(request.filters.tags)
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{request.langfuse_config.host}/api/public/traces",
+                    headers=get_langfuse_auth_header(request.langfuse_config),
+                    params=params
+                )
+                response.raise_for_status()
+                traces = response.json().get("data", [])
+
+                for trace in traces:
+                    sample = transform_langfuse_trace_to_sample(trace)
+
+                    # Apply score filters
+                    if request.filters.max_score and sample.score is not None:
+                        if sample.score > request.filters.max_score:
+                            continue
+                    if request.filters.min_score and sample.score is not None:
+                        if sample.score < request.filters.min_score:
+                            continue
+
+                    samples.append(sample)
+
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(status_code=e.response.status_code, detail=f"Langfuse error: {e.response.text}")
+
+    elif request.source == "langsmith":
+        if not request.langsmith_config:
+            raise HTTPException(status_code=400, detail="LangSmith config required")
+
+        try:
+            # Use existing endpoint logic
+            runs_response = await list_langsmith_runs(
+                config=request.langsmith_config,
+                project_name=request.filters.prompt_name,
+                start_time=request.filters.start_time,
+                end_time=request.filters.end_time,
+                error_only=request.filters.error_only,
+                limit=request.filters.limit
+            )
+
+            runs = runs_response if isinstance(runs_response, list) else runs_response.get("runs", [])
+
+            for run in runs:
+                sample = transform_langsmith_run_to_sample(run)
+
+                # Apply score filters
+                if request.filters.max_score and sample.score is not None:
+                    if sample.score > request.filters.max_score:
+                        continue
+                if request.filters.min_score and sample.score is not None:
+                    if sample.score < request.filters.min_score:
+                        continue
+
+                samples.append(sample)
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"LangSmith error: {str(e)}")
+
+    elif request.source == "manual":
+        # Fetch from local reported failures
+        from backend.database import ReportedFailure
+
+        db = next(get_db())
+        try:
+            query = db.query(ReportedFailure)
+            if request.filters.prompt_name:
+                query = query.filter(ReportedFailure.prompt_name == request.filters.prompt_name)
+
+            failures = query.order_by(ReportedFailure.created_at.desc()).limit(request.filters.limit).all()
+
+            for failure in failures:
+                samples.append(TraceSample(
+                    trace_id=str(failure.id),
+                    input=failure.input_text,
+                    output=failure.output_text,
+                    expected_output=failure.expected_output,
+                    failure_category=failure.failure_category,
+                    metadata={"source": "manual", "session_id": failure.session_id}
+                ))
+        finally:
+            db.close()
+
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown source: {request.source}")
+
+    return {
+        "source": request.source,
+        "count": len(samples),
+        "samples": [s.model_dump() for s in samples]
+    }
+
+
+@app.post("/api/traces/analyze")
+async def analyze_traces(request: TraceAnalysisRequest):
+    """Analyze traces to detect failure patterns and generate judge enhancements"""
+    # First fetch the traces
+    fetch_result = await fetch_traces(request)
+    samples = [TraceSample(**s) for s in fetch_result["samples"]]
+
+    if not samples:
+        return TraceAnalysisResult(
+            total_traces=0,
+            failing_traces=0,
+            success_traces=0,
+            failure_patterns=[],
+            samples=[],
+            suggested_judge_criteria="No traces found to analyze"
+        )
+
+    # Classify traces by score
+    failing_samples = []
+    success_samples = []
+    threshold = request.filters.max_score or 0.5
+
+    for sample in samples:
+        if sample.score is not None and sample.score < threshold:
+            failing_samples.append(sample)
+        elif sample.score is not None:
+            success_samples.append(sample)
+        else:
+            # No score - treat as potentially failing
+            failing_samples.append(sample)
+
+    # Use LLM to analyze failure patterns
+    failure_patterns = []
+    suggested_judge_criteria = ""
+
+    if failing_samples and request.analysis_model:
+        # Build analysis prompt
+        interactions_text = "\n\n---\n\n".join([
+            f"Input: {s.input[:500]}\nOutput: {s.output[:500]}\nScore: {s.score}\nFeedback: {s.feedback or 'N/A'}"
+            for s in failing_samples[:15]  # Limit for context window
+        ])
+
+        analysis_prompt = f"""Analyze these failed LLM interactions and identify common failure patterns:
+
+FAILED INTERACTIONS:
+{interactions_text}
+
+Please analyze and return a JSON object with:
+1. "patterns": Array of failure patterns, each with:
+   - "category": One of WRONG_FORMAT, INCOMPLETE, HALLUCINATION, OFF_TOPIC, INCONSISTENT, POOR_QUALITY, TOOL_MISUSE, OTHER
+   - "description": What went wrong
+   - "count": Estimated number of failures matching this pattern
+   - "severity": "high", "medium", or "low"
+   - "suggested_fix": How to improve the prompt
+
+2. "judge_criteria": A paragraph describing evaluation criteria to add to a judge prompt that would catch these specific failures
+
+Return valid JSON only, no markdown."""
+
+        try:
+            model_string = get_litellm_model_string(request.analysis_model)
+            response = litellm.completion(
+                model=model_string,
+                messages=[{"role": "user", "content": analysis_prompt}],
+                api_key=request.analysis_model.api_key,
+                temperature=0.3,
+            )
+
+            analysis_text = response.choices[0].message.content.strip()
+
+            # Try to parse as JSON
+            if analysis_text.startswith("```"):
+                lines = analysis_text.split("\n")
+                analysis_text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+
+            analysis = json.loads(analysis_text)
+            failure_patterns = analysis.get("patterns", [])
+            suggested_judge_criteria = analysis.get("judge_criteria", "")
+
+        except Exception as e:
+            print(f"[TraceAnalysis] LLM analysis failed: {e}")
+            # Fallback - basic pattern detection
+            failure_patterns = [{"category": "UNKNOWN", "description": "Could not analyze patterns", "count": len(failing_samples)}]
+            suggested_judge_criteria = f"Evaluate based on {len(failing_samples)} known failure cases."
+
+    # Generate enhanced judge prompt
+    if failure_patterns and not suggested_judge_criteria:
+        suggested_judge_criteria = "## KNOWN FAILURE PATTERNS TO CHECK:\n"
+        for p in failure_patterns:
+            suggested_judge_criteria += f"- {p['category']}: {p.get('description', 'N/A')}\n"
+        suggested_judge_criteria += "\nPenalize heavily if the output exhibits any of these patterns."
+
+    return TraceAnalysisResult(
+        total_traces=len(samples),
+        failing_traces=len(failing_samples),
+        success_traces=len(success_samples),
+        failure_patterns=failure_patterns,
+        samples=[s.model_dump() for s in samples],
+        suggested_judge_criteria=suggested_judge_criteria
+    )
+
+
+class TraceEvolutionRequest(BaseModel):
+    """Request to start trace-driven evolution"""
+    seed_prompt: str
+    judge_prompt: str
+
+    # Trace source
+    trace_source: str  # "langfuse", "langsmith", "manual"
+    trace_filters: TraceFilterConfig
+
+    # Or provide samples directly
+    trace_samples: Optional[list[TraceSample]] = None
+
+    # Configs
+    langfuse_config: Optional[LangfuseConfig] = None
+    langsmith_config: Optional[LangSmithConfig] = None
+
+    # Model configuration
+    task_model: ModelConfig
+    judge_model: ModelConfig
+    reflection_model: Optional[ModelConfig] = None
+
+    # Evolution parameters
+    max_iterations: int = 10
+    population_size: int = 5
+
+    # Trace-specific options
+    enhance_judge_with_patterns: bool = True
+    weight_by_failure_frequency: bool = True
+
+
+@app.post("/api/evolution/trace-driven/start")
+async def start_trace_driven_evolution(
+    request: TraceEvolutionRequest,
+    current_user: User = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    """Start evolution using trace data as training inputs"""
+    from backend.database import TraceEvolutionSession
+
+    session_id = str(uuid.uuid4())
+
+    # Get trace samples and determine judge prompt
+    judge_prompt = request.judge_prompt
+
+    if request.trace_samples:
+        samples = request.trace_samples
+    else:
+        # Fetch and analyze traces
+        analysis_request = TraceAnalysisRequest(
+            source=request.trace_source,
+            filters=request.trace_filters,
+            langfuse_config=request.langfuse_config,
+            langsmith_config=request.langsmith_config,
+            analysis_model=request.judge_model  # Use judge model for analysis
+        )
+
+        analysis_result = await analyze_traces(analysis_request)
+        samples = [TraceSample(**s) for s in analysis_result.samples]
+
+        # Enhance judge with failure patterns if requested
+        if request.enhance_judge_with_patterns and analysis_result.suggested_judge_criteria:
+            judge_prompt = f"""{request.judge_prompt}
+
+## ADDITIONAL CRITERIA FROM PRODUCTION FAILURES:
+{analysis_result.suggested_judge_criteria}"""
+
+    if not samples:
+        raise HTTPException(status_code=400, detail="No trace samples available for evolution")
+
+    # Convert trace samples to test inputs
+    test_inputs = []
+    for sample in samples:
+        # Use input as test data, include expected output in metadata if available
+        test_input = sample.input
+        if sample.expected_output:
+            # Include expected output context for judge
+            test_input = json.dumps({
+                "input": sample.input,
+                "expected_output": sample.expected_output
+            })
+        test_inputs.append(test_input)
+
+    # Create evolution session
+    session = EvolutionSession(
+        id=session_id,
+        config={
+            "seed_prompt": request.seed_prompt,
+            "judge_prompt": judge_prompt,
+            "test_inputs": test_inputs,
+            "task_model": request.task_model.model_dump(),
+            "judge_model": request.judge_model.model_dump(),
+            "reflection_model": request.reflection_model.model_dump() if request.reflection_model else None,
+            "max_iterations": request.max_iterations,
+            "population_size": request.population_size,
+            "trace_driven": True
+        },
+        status="pending",
+        max_iterations=request.max_iterations,
+        seed_prompt=request.seed_prompt,
+        logs=["Starting trace-driven evolution..."]
+    )
+
+    evolution_sessions[session_id] = session
+
+    # Store trace evolution metadata
+    trace_session = TraceEvolutionSession(
+        id=str(uuid.uuid4()),
+        user_id=current_user.id if current_user else None,
+        evolution_session_id=session_id,
+        trace_source=request.trace_source,
+        prompt_name=request.trace_filters.prompt_name,
+        trace_filters=request.trace_filters.model_dump(),
+        total_traces_analyzed=len(samples),
+        failing_traces_count=len([s for s in samples if s.score and s.score < 0.5]),
+        trace_samples=[s.model_dump() for s in samples[:50]],  # Store up to 50 samples
+        trace_ids=[s.trace_id for s in samples],
+        original_judge_prompt=request.judge_prompt,
+        enhanced_judge_prompt=judge_prompt if judge_prompt != request.judge_prompt else None
+    )
+
+    db.add(trace_session)
+    db.commit()
+
+    # Start evolution in background thread
+    config = EvolutionConfig(
+        seed_prompt=request.seed_prompt,
+        judge_prompt=judge_prompt,
+        test_inputs=test_inputs,
+        task_model=request.task_model,
+        judge_model=request.judge_model,
+        reflection_model=request.reflection_model,
+        max_iterations=request.max_iterations,
+        population_size=request.population_size
+    )
+
+    thread = threading.Thread(target=run_gepa_evolution, args=(session_id, config))
+    thread.daemon = True
+    thread.start()
+
+    return {
+        "session_id": session_id,
+        "trace_session_id": trace_session.id,
+        "status": "started",
+        "trace_count": len(samples),
+        "message": f"Started trace-driven evolution with {len(samples)} trace samples"
+    }
 
 
 # Serve static files

@@ -173,6 +173,35 @@
             background: #c0392b;
         }
 
+        /* Modal styles */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 25px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .btn-sm {
+            padding: 4px 8px;
+            font-size: 0.8rem;
+        }
+
         /* Tabs */
         .tabs {
             display: flex;
@@ -789,9 +818,151 @@
 </head>
 <body>
     <div class="app-container">
-        <header>
+        <header style="display:flex;justify-content:space-between;align-items:center;">
             <h1>GEPA Prompt Evolution + Langfuse</h1>
+            <div id="auth-section" style="display:flex;gap:10px;align-items:center;">
+                <!-- Shows when not logged in -->
+                <div id="auth-buttons" style="display:none;">
+                    <button class="btn btn-primary" onclick="showLoginModal()">Login</button>
+                    <button class="btn" onclick="showRegisterModal()">Register</button>
+                </div>
+                <!-- Shows when logged in -->
+                <div id="user-info" style="display:none;align-items:center;gap:10px;">
+                    <span id="user-display" style="color:#00d4ff;font-size:0.85rem;"></span>
+                    <button id="admin-btn" class="btn btn-sm" onclick="showAdminModal()" style="padding:6px 12px;background:linear-gradient(135deg,#9b59b6,#8e44ad);color:#fff;border:none;cursor:pointer;display:none;">Admin</button>
+                    <button class="btn btn-sm" onclick="showSettingsModal()" style="padding:6px 12px;">Settings</button>
+                    <button class="btn btn-sm" onclick="logout()" style="padding:6px 12px;background:rgba(231,76,60,0.3);">Logout</button>
+                </div>
+            </div>
         </header>
+
+        <!-- Login Modal -->
+        <div id="login-modal" class="modal" style="display:none;">
+            <div class="modal-content" style="max-width:400px;">
+                <h3 style="margin-bottom:20px;color:#00d4ff;">Login</h3>
+                <div class="form-group">
+                    <label>Username or Email</label>
+                    <input type="text" id="login-username" placeholder="Enter username or email">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="login-password" placeholder="Enter password">
+                </div>
+                <div id="login-error" style="color:#e74c3c;font-size:0.85rem;margin-bottom:10px;display:none;"></div>
+                <div style="display:flex;gap:10px;justify-content:flex-end;">
+                    <button class="btn" onclick="hideLoginModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="doLogin()">Login</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Register Modal -->
+        <div id="register-modal" class="modal" style="display:none;">
+            <div class="modal-content" style="max-width:400px;">
+                <h3 style="margin-bottom:20px;color:#00d4ff;">Register</h3>
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" id="register-username" placeholder="Choose a username">
+                </div>
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" id="register-email" placeholder="Enter your email">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="register-password" placeholder="Choose a password">
+                </div>
+                <div id="register-error" style="color:#e74c3c;font-size:0.85rem;margin-bottom:10px;display:none;"></div>
+                <div style="display:flex;gap:10px;justify-content:flex-end;">
+                    <button class="btn" onclick="hideRegisterModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="doRegister()">Register</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Modal -->
+        <div id="settings-modal" class="modal" style="display:none;">
+            <div class="modal-content" style="max-width:500px;">
+                <h3 style="margin-bottom:20px;color:#00d4ff;">Settings - API Keys</h3>
+                <p style="font-size:0.8rem;color:#888;margin-bottom:15px;">Your API keys are encrypted and stored securely.</p>
+                <div class="form-group">
+                    <label>OpenAI API Key</label>
+                    <input type="password" id="settings-openai" placeholder="sk-...">
+                </div>
+                <div class="form-group">
+                    <label>Anthropic API Key</label>
+                    <input type="password" id="settings-anthropic" placeholder="sk-ant-...">
+                </div>
+                <div class="form-group">
+                    <label>Google API Key</label>
+                    <input type="password" id="settings-google" placeholder="AIza...">
+                </div>
+                <div class="form-group">
+                    <label>Mistral API Key</label>
+                    <input type="password" id="settings-mistral" placeholder="">
+                </div>
+                <div class="form-group">
+                    <label>Groq API Key</label>
+                    <input type="password" id="settings-groq" placeholder="gsk_...">
+                </div>
+                <div class="form-group">
+                    <label>Replicate API Token</label>
+                    <input type="password" id="settings-replicate" placeholder="r8_...">
+                </div>
+                <hr style="border-color:rgba(255,255,255,0.1);margin:15px 0;">
+                <div class="form-group">
+                    <label>Langfuse Host</label>
+                    <input type="text" id="settings-langfuse-host" placeholder="https://cloud.langfuse.com">
+                </div>
+                <div class="form-group">
+                    <label>Langfuse Public Key</label>
+                    <input type="password" id="settings-langfuse-public" placeholder="pk-lf-...">
+                </div>
+                <div class="form-group">
+                    <label>Langfuse Secret Key</label>
+                    <input type="password" id="settings-langfuse-secret" placeholder="sk-lf-...">
+                </div>
+                <hr style="border-color:rgba(255,255,255,0.1);margin:15px 0;">
+                <p style="font-size:0.8rem;color:#888;margin-bottom:10px;">LangSmith (for trace-driven evolution)</p>
+                <div class="form-group">
+                    <label>LangSmith API Key</label>
+                    <input type="password" id="settings-langsmith-key" placeholder="lsv2_...">
+                </div>
+                <div class="form-group">
+                    <label>LangSmith Default Project</label>
+                    <input type="text" id="settings-langsmith-project" placeholder="default">
+                </div>
+                <div id="settings-message" style="font-size:0.85rem;margin-bottom:10px;display:none;"></div>
+                <div style="display:flex;gap:10px;justify-content:flex-end;">
+                    <button class="btn" onclick="hideSettingsModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Admin Modal -->
+        <div id="admin-modal" class="modal" style="display:none;">
+            <div class="modal-content" style="max-width:700px;">
+                <h3 style="margin-bottom:20px;color:#9b59b6;">Admin Panel - User Management</h3>
+                <div id="admin-users-list" style="max-height:400px;overflow-y:auto;">
+                    <div style="color:#888;text-align:center;padding:20px;">Loading users...</div>
+                </div>
+                <div id="admin-message" style="font-size:0.85rem;margin-top:10px;display:none;"></div>
+                <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:15px;">
+                    <button class="btn" onclick="hideAdminModal()">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Login Required Overlay -->
+        <div id="login-required-overlay" style="position:fixed;top:0;left:0;width:100%;height:100%;background:linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);z-index:999;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+            <h1 style="font-size:2rem;margin-bottom:10px;background:linear-gradient(90deg, #00d4ff, #7b2cbf);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">GEPA Prompt Evolution</h1>
+            <p style="color:#888;margin-bottom:30px;">Please login or register to continue</p>
+            <div style="display:flex;gap:15px;">
+                <button class="btn btn-primary" onclick="showLoginModal()" style="padding:12px 30px;font-size:1rem;">Login</button>
+                <button class="btn" onclick="showRegisterModal()" style="padding:12px 30px;font-size:1rem;">Register</button>
+            </div>
+        </div>
 
         <!-- Left Panel - Langfuse Prompts -->
         <div class="left-panel">
@@ -833,6 +1004,7 @@
         <div class="center-panel">
             <div class="tabs" id="main-tabs" style="margin-bottom:15px;">
                 <button class="tab-btn active" onclick="switchMainTab('setup')">Setup</button>
+                <button class="tab-btn" onclick="switchMainTab('trace-driven')">Trace-Driven</button>
                 <button class="tab-btn" onclick="switchMainTab('compare')">Compare Results</button>
             </div>
 
@@ -941,54 +1113,51 @@ FEEDBACK: [detailed feedback]</textarea>
                         <div class="form-group">
                             <label>Model</label>
                             <select id="image-model">
-                                <optgroup label="Flux (Black Forest Labs)">
+                                <optgroup label="Recommended (8 Best Models)">
+                                    <option value="flux-schnell" selected>Flux Schnell (Fast & Free)</option>
                                     <option value="flux-1.1-pro">Flux 1.1 Pro (Best quality)</option>
+                                    <option value="sd-3.5-large-turbo">SD 3.5 Large Turbo (Fast)</option>
+                                    <option value="sdxl-lightning">SDXL Lightning (Ultra fast)</option>
+                                    <option value="ideogram-v2-turbo">Ideogram v2 Turbo</option>
+                                    <option value="recraft-v3">Recraft v3</option>
+                                    <option value="photon">Luma Photon</option>
+                                    <option value="dreamshaper">DreamShaper XL Turbo</option>
+                                </optgroup>
+                                <optgroup label="More Flux Models">
                                     <option value="flux-1.1-pro-ultra">Flux 1.1 Pro Ultra</option>
                                     <option value="flux-pro">Flux Pro</option>
-                                    <option value="flux-schnell">Flux Schnell (Fast)</option>
                                     <option value="flux-dev">Flux Dev</option>
                                 </optgroup>
                                 <optgroup label="Stable Diffusion">
-                                    <option value="sd-3.5-large">SD 3.5 Large (Latest)</option>
-                                    <option value="sd-3.5-large-turbo">SD 3.5 Large Turbo (Fast)</option>
+                                    <option value="sd-3.5-large">SD 3.5 Large</option>
                                     <option value="sd-3">Stable Diffusion 3</option>
                                     <option value="sdxl">Stable Diffusion XL</option>
-                                    <option value="sdxl-lightning">SDXL Lightning (Ultra fast)</option>
-                                </optgroup>
-                                <optgroup label="Google Imagen">
-                                    <option value="imagen-3">Imagen 3</option>
-                                    <option value="imagen-3-fast">Imagen 3 Fast</option>
-                                </optgroup>
-                                <optgroup label="Ideogram">
-                                    <option value="ideogram-v2">Ideogram v2</option>
-                                    <option value="ideogram-v2-turbo">Ideogram v2 Turbo</option>
-                                </optgroup>
-                                <optgroup label="Recraft">
-                                    <option value="recraft-v3">Recraft v3</option>
-                                    <option value="recraft-v3-svg">Recraft v3 SVG</option>
-                                </optgroup>
-                                <optgroup label="Realistic/Photorealistic">
-                                    <option value="photon">Luma Photon</option>
-                                    <option value="realistic-vision">Realistic Vision v5.1</option>
-                                </optgroup>
-                                <optgroup label="Art & Creative">
-                                    <option value="playground-v2.5">Playground v2.5</option>
-                                    <option value="dreamshaper">DreamShaper XL Turbo</option>
-                                    <option value="openjourney">OpenJourney (Midjourney-style)</option>
-                                    <option value="dall-e-3">DALL-E 3 (Replicate)</option>
                                 </optgroup>
                                 <optgroup label="Other Models">
-                                    <option value="kolors">Kolors (Kwai)</option>
-                                    <option value="kandinsky-3">Kandinsky 3</option>
-                                    <option value="hunyuan-dit">Hunyuan DiT (Tencent)</option>
+                                    <option value="imagen-3">Imagen 3</option>
+                                    <option value="ideogram-v2">Ideogram v2</option>
+                                    <option value="playground-v2.5">Playground v2.5</option>
+                                    <option value="realistic-vision">Realistic Vision v5.1</option>
+                                    <option value="photon-flash">Luma Photon Flash</option>
                                 </optgroup>
                             </select>
                         </div>
                     </div>
-                    <div class="form-group">
-                        <label>Replicate API Token</label>
-                        <input type="password" id="image-api-key" placeholder="r8_...">
-                        <a href="https://replicate.com/account/api-tokens" target="_blank" style="font-size:0.7rem;color:#00d4ff;margin-left:8px;">Get API token</a>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Replicate API Token</label>
+                            <input type="password" id="image-api-key" placeholder="r8_...">
+                            <a href="https://replicate.com/account/api-tokens" target="_blank" style="font-size:0.7rem;color:#00d4ff;margin-left:8px;">Get API token</a>
+                        </div>
+                        <div class="form-group">
+                            <label>Images per Round</label>
+                            <select id="images-per-round">
+                                <option value="4">4 images</option>
+                                <option value="8" selected>8 images</option>
+                                <option value="12">12 images</option>
+                                <option value="16">16 images</option>
+                            </select>
+                        </div>
                     </div>
                     <p style="font-size: 0.75rem; color: #888; margin-top: 8px;">
                         For image mode, use a vision-capable model (like Llama 4 Scout/Maverick on Groq) as the Judge to evaluate generated images.
@@ -1060,6 +1229,141 @@ FEEDBACK: [detailed feedback]</textarea>
             </div><!-- End Setup Tab -->
 
             <!-- Compare Results Tab -->
+            <!-- Trace-Driven Tab -->
+            <div class="main-tab-content" id="main-tab-trace-driven" style="display:none;">
+                <div class="card">
+                    <h3 style="color:#00d4ff;margin-bottom:15px;">Trace-Driven Evolution</h3>
+                    <p style="font-size:0.9rem;color:#888;margin-bottom:15px;">
+                        Use real production failures from Langfuse or LangSmith to automatically improve your prompts.
+                    </p>
+
+                    <!-- Trace Source Selection -->
+                    <div class="form-group">
+                        <label>Trace Source</label>
+                        <select id="trace-source" onchange="onTraceSourceChange()">
+                            <option value="langfuse">Langfuse</option>
+                            <option value="langsmith">LangSmith</option>
+                            <option value="manual">Manual Failures</option>
+                        </select>
+                    </div>
+
+                    <!-- LangSmith Config (hidden by default) -->
+                    <div id="langsmith-config-section" style="display:none;background:rgba(255,255,255,0.05);padding:12px;border-radius:8px;margin-bottom:15px;">
+                        <div class="form-group">
+                            <label>LangSmith API Key</label>
+                            <input type="password" id="langsmith-api-key" placeholder="lsv2_...">
+                        </div>
+                        <div class="form-group">
+                            <label>Project Name</label>
+                            <input type="text" id="langsmith-project" placeholder="default">
+                        </div>
+                    </div>
+
+                    <!-- Trace Filters -->
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                        <div class="form-group">
+                            <label>Prompt/Run Name (optional)</label>
+                            <input type="text" id="trace-prompt-name" placeholder="e.g., chat-completion">
+                        </div>
+                        <div class="form-group">
+                            <label>Score Threshold (failures below)</label>
+                            <input type="number" id="trace-score-threshold" value="50" min="0" max="100">
+                        </div>
+                    </div>
+
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                        <div class="form-group">
+                            <label>Time Range</label>
+                            <select id="trace-time-range">
+                                <option value="24h">Last 24 hours</option>
+                                <option value="7d" selected>Last 7 days</option>
+                                <option value="30d">Last 30 days</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Max Traces</label>
+                            <input type="number" id="trace-limit" value="50" min="1" max="200">
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary" onclick="fetchAndAnalyzeTraces()" style="width:100%;margin-bottom:15px;">
+                        Fetch & Analyze Traces
+                    </button>
+                </div>
+
+                <!-- Analysis Results (hidden until analyzed) -->
+                <div class="card" id="trace-analysis-results" style="display:none;">
+                    <h3 style="color:#00d4ff;margin-bottom:15px;">Analysis Results</h3>
+
+                    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:15px;">
+                        <div style="background:rgba(255,255,255,0.05);padding:15px;border-radius:8px;text-align:center;">
+                            <div style="font-size:1.5rem;font-weight:bold;color:#00d4ff;" id="trace-total-count">0</div>
+                            <div style="font-size:0.8rem;color:#888;">Total Traces</div>
+                        </div>
+                        <div style="background:rgba(231,76,60,0.1);padding:15px;border-radius:8px;text-align:center;">
+                            <div style="font-size:1.5rem;font-weight:bold;color:#e74c3c;" id="trace-failing-count">0</div>
+                            <div style="font-size:0.8rem;color:#888;">Failing Traces</div>
+                        </div>
+                        <div style="background:rgba(46,204,113,0.1);padding:15px;border-radius:8px;text-align:center;">
+                            <div style="font-size:1.5rem;font-weight:bold;color:#2ecc71;" id="trace-patterns-count">0</div>
+                            <div style="font-size:0.8rem;color:#888;">Failure Patterns</div>
+                        </div>
+                    </div>
+
+                    <!-- Failure Patterns -->
+                    <div id="failure-patterns-list" style="margin-bottom:15px;"></div>
+
+                    <!-- Sample Traces -->
+                    <details style="margin-bottom:15px;">
+                        <summary style="cursor:pointer;color:#00d4ff;font-weight:600;margin-bottom:10px;">Sample Failing Traces</summary>
+                        <div id="trace-samples-list" style="max-height:200px;overflow-y:auto;"></div>
+                    </details>
+
+                    <!-- Enhanced Judge Preview -->
+                    <details>
+                        <summary style="cursor:pointer;color:#00d4ff;font-weight:600;margin-bottom:10px;">Enhanced Judge Criteria</summary>
+                        <pre id="enhanced-judge-preview" style="background:rgba(0,0,0,0.3);padding:10px;border-radius:6px;font-size:0.8rem;max-height:150px;overflow-y:auto;white-space:pre-wrap;"></pre>
+                    </details>
+                </div>
+
+                <!-- Start Evolution -->
+                <div class="card" id="trace-evolution-start" style="display:none;">
+                    <h3 style="color:#2ecc71;margin-bottom:15px;">Start Trace-Driven Evolution</h3>
+                    <p style="font-size:0.85rem;color:#888;margin-bottom:15px;">
+                        The evolution will use <span id="trace-sample-count">0</span> trace samples as training data.
+                        The judge will be enhanced with detected failure patterns.
+                    </p>
+                    <button class="btn btn-success" onclick="startTraceEvolution()" style="width:100%;">
+                        Start Evolution with Traces
+                    </button>
+                </div>
+
+                <!-- Report Failure Section -->
+                <div class="card">
+                    <h3 style="color:#888;margin-bottom:15px;">Report a Failure Manually</h3>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:15px;">
+                        Didn't get the output you wanted? Report it here to improve the prompt.
+                    </p>
+                    <div class="form-group">
+                        <label>Prompt Name</label>
+                        <input type="text" id="report-prompt-name" placeholder="e.g., scenario-generator">
+                    </div>
+                    <div class="form-group">
+                        <label>Your Input (what you asked)</label>
+                        <textarea id="report-input" style="min-height:60px;" placeholder="The input/question you provided..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Bad Output (what you got)</label>
+                        <textarea id="report-output" style="min-height:60px;" placeholder="The response that wasn't what you needed..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Expected Output (optional - what you wanted)</label>
+                        <textarea id="report-expected" style="min-height:60px;" placeholder="What the correct response should have been..."></textarea>
+                    </div>
+                    <button class="btn btn-secondary" onclick="reportFailure()" style="width:100%;">Report Failure</button>
+                </div>
+            </div><!-- End Trace-Driven Tab -->
+
             <div class="main-tab-content" id="main-tab-compare" style="display:none;">
                 <div class="card">
                     <div class="improvement-banner" id="main-improvement-banner">
@@ -1196,7 +1500,7 @@ FEEDBACK: [detailed feedback]</textarea>
                         <span style="font-size:0.9rem;color:#ff6b6b;font-weight:500;">Generated Images</span>
                         <span id="image-count" style="font-size:0.75rem;color:#888;">0 images</span>
                     </div>
-                    <div id="image-gallery" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(120px, 1fr));gap:10px;max-height:300px;overflow-y:auto;padding:5px;background:rgba(0,0,0,0.2);border-radius:8px;">
+                    <div id="image-gallery" style="display:grid;grid-template-columns:repeat(4, 1fr);gap:8px;max-height:400px;overflow-y:auto;padding:8px;background:rgba(0,0,0,0.2);border-radius:8px;">
                     </div>
                 </div>
             </div>
@@ -1304,6 +1608,503 @@ FEEDBACK: [detailed feedback]</textarea>
     </div>
 
     <script>
+        // ==================== AUTHENTICATION ====================
+
+        let currentUser = null;
+        let authToken = localStorage.getItem('authToken');
+
+        // Check auth on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            checkAuth();
+        });
+
+        async function checkAuth() {
+            if (!authToken) {
+                showAuthButtons();
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/auth/me', {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+
+                if (response.ok) {
+                    currentUser = await response.json();
+                    showUserInfo();
+                    loadUserSettings();
+                } else {
+                    // Token invalid
+                    localStorage.removeItem('authToken');
+                    authToken = null;
+                    showAuthButtons();
+                }
+            } catch (e) {
+                console.error('Auth check failed:', e);
+                showAuthButtons();
+            }
+        }
+
+        function showAuthButtons() {
+            document.getElementById('auth-buttons').style.display = 'flex';
+            document.getElementById('user-info').style.display = 'none';
+            // Show login required overlay
+            document.getElementById('login-required-overlay').style.display = 'flex';
+        }
+
+        function showUserInfo() {
+            document.getElementById('auth-buttons').style.display = 'none';
+            document.getElementById('user-info').style.display = 'flex';
+            const adminBadge = currentUser.is_admin ? ' (Admin)' : '';
+            document.getElementById('user-display').textContent = currentUser.username + adminBadge;
+            // Show/hide admin button based on user role
+            document.getElementById('admin-btn').style.display = currentUser.is_admin ? 'inline-block' : 'none';
+            // Hide login required overlay
+            document.getElementById('login-required-overlay').style.display = 'none';
+            // Reload config from server for this user
+            loadConfig();
+        }
+
+        function showLoginModal() {
+            document.getElementById('login-modal').style.display = 'flex';
+            document.getElementById('login-error').style.display = 'none';
+            document.getElementById('login-username').value = '';
+            document.getElementById('login-password').value = '';
+        }
+
+        function hideLoginModal() {
+            document.getElementById('login-modal').style.display = 'none';
+        }
+
+        function showRegisterModal() {
+            document.getElementById('register-modal').style.display = 'flex';
+            document.getElementById('register-error').style.display = 'none';
+            document.getElementById('register-username').value = '';
+            document.getElementById('register-email').value = '';
+            document.getElementById('register-password').value = '';
+        }
+
+        function hideRegisterModal() {
+            document.getElementById('register-modal').style.display = 'none';
+        }
+
+        function showSettingsModal() {
+            document.getElementById('settings-modal').style.display = 'flex';
+            document.getElementById('settings-message').style.display = 'none';
+            loadSettingsForEdit();
+        }
+
+        function hideSettingsModal() {
+            document.getElementById('settings-modal').style.display = 'none';
+        }
+
+        // ==================== ADMIN FUNCTIONS ====================
+        async function showAdminModal() {
+            document.getElementById('admin-modal').style.display = 'flex';
+            document.getElementById('admin-message').style.display = 'none';
+            await loadAdminUsers();
+        }
+
+        function hideAdminModal() {
+            document.getElementById('admin-modal').style.display = 'none';
+        }
+
+        async function loadAdminUsers() {
+            const listEl = document.getElementById('admin-users-list');
+            listEl.innerHTML = '<div style="color:#888;text-align:center;padding:20px;">Loading users...</div>';
+
+            try {
+                const response = await fetch('/api/admin/users', {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to load users');
+                }
+
+                const users = await response.json();
+                renderAdminUsers(users);
+            } catch (error) {
+                listEl.innerHTML = `<div style="color:#e74c3c;text-align:center;padding:20px;">Error: ${error.message}</div>`;
+            }
+        }
+
+        function renderAdminUsers(users) {
+            const listEl = document.getElementById('admin-users-list');
+
+            if (!users || users.length === 0) {
+                listEl.innerHTML = '<div style="color:#888;text-align:center;padding:20px;">No users found</div>';
+                return;
+            }
+
+            listEl.innerHTML = `
+                <table style="width:100%;border-collapse:collapse;">
+                    <thead>
+                        <tr style="border-bottom:1px solid rgba(255,255,255,0.1);">
+                            <th style="text-align:left;padding:10px;color:#888;font-weight:normal;">ID</th>
+                            <th style="text-align:left;padding:10px;color:#888;font-weight:normal;">Username</th>
+                            <th style="text-align:left;padding:10px;color:#888;font-weight:normal;">Email</th>
+                            <th style="text-align:left;padding:10px;color:#888;font-weight:normal;">Role</th>
+                            <th style="text-align:left;padding:10px;color:#888;font-weight:normal;">Status</th>
+                            <th style="text-align:right;padding:10px;color:#888;font-weight:normal;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${users.map(u => `
+                            <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                                <td style="padding:10px;color:#ccc;">${u.id}</td>
+                                <td style="padding:10px;color:#fff;">${escapeHtml(u.username)}</td>
+                                <td style="padding:10px;color:#888;">${escapeHtml(u.email)}</td>
+                                <td style="padding:10px;">
+                                    <span style="padding:2px 8px;border-radius:4px;font-size:0.75rem;${u.is_admin ? 'background:rgba(155,89,182,0.3);color:#9b59b6;' : 'background:rgba(52,152,219,0.3);color:#3498db;'}">
+                                        ${u.is_admin ? 'Admin' : 'User'}
+                                    </span>
+                                </td>
+                                <td style="padding:10px;">
+                                    <span style="padding:2px 8px;border-radius:4px;font-size:0.75rem;${u.is_active ? 'background:rgba(46,204,113,0.3);color:#2ecc71;' : 'background:rgba(231,76,60,0.3);color:#e74c3c;'}">
+                                        ${u.is_active ? 'Active' : 'Inactive'}
+                                    </span>
+                                </td>
+                                <td style="padding:10px;text-align:right;">
+                                    ${u.id !== currentUser?.id ? `
+                                        <button class="btn btn-sm" onclick="toggleUserActive(${u.id}, ${u.is_active})" style="padding:4px 8px;font-size:0.7rem;margin-right:5px;">
+                                            ${u.is_active ? 'Disable' : 'Enable'}
+                                        </button>
+                                        <button class="btn btn-sm" onclick="deleteUser(${u.id}, '${escapeHtml(u.username)}')" style="padding:4px 8px;font-size:0.7rem;background:rgba(231,76,60,0.3);">
+                                            Delete
+                                        </button>
+                                    ` : '<span style="color:#666;font-size:0.75rem;">Current user</span>'}
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        async function toggleUserActive(userId, currentStatus) {
+            const msgEl = document.getElementById('admin-message');
+
+            try {
+                const response = await fetch(`/api/admin/users/${userId}/toggle-active`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to toggle user status');
+                }
+
+                msgEl.textContent = `User ${currentStatus ? 'disabled' : 'enabled'} successfully`;
+                msgEl.style.color = '#2ecc71';
+                msgEl.style.display = 'block';
+
+                await loadAdminUsers();
+            } catch (error) {
+                msgEl.textContent = error.message;
+                msgEl.style.color = '#e74c3c';
+                msgEl.style.display = 'block';
+            }
+        }
+
+        async function deleteUser(userId, username) {
+            if (!confirm(`Are you sure you want to delete user "${username}"? This action cannot be undone.`)) {
+                return;
+            }
+
+            const msgEl = document.getElementById('admin-message');
+
+            try {
+                const response = await fetch(`/api/admin/users/${userId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to delete user');
+                }
+
+                msgEl.textContent = `User "${username}" deleted successfully`;
+                msgEl.style.color = '#2ecc71';
+                msgEl.style.display = 'block';
+
+                await loadAdminUsers();
+            } catch (error) {
+                msgEl.textContent = error.message;
+                msgEl.style.color = '#e74c3c';
+                msgEl.style.display = 'block';
+            }
+        }
+        // ==================== END ADMIN FUNCTIONS ====================
+
+        async function doLogin() {
+            const username = document.getElementById('login-username').value;
+            const password = document.getElementById('login-password').value;
+            const errorEl = document.getElementById('login-error');
+
+            if (!username || !password) {
+                errorEl.textContent = 'Please fill in all fields';
+                errorEl.style.display = 'block';
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    authToken = data.access_token;
+                    localStorage.setItem('authToken', authToken);
+                    currentUser = data.user;
+                    hideLoginModal();
+                    showUserInfo();
+                    loadUserSettings();
+                } else {
+                    errorEl.textContent = data.detail || 'Login failed';
+                    errorEl.style.display = 'block';
+                }
+            } catch (e) {
+                errorEl.textContent = 'Connection error';
+                errorEl.style.display = 'block';
+            }
+        }
+
+        async function doRegister() {
+            const username = document.getElementById('register-username').value;
+            const email = document.getElementById('register-email').value;
+            const password = document.getElementById('register-password').value;
+            const errorEl = document.getElementById('register-error');
+
+            if (!username || !email || !password) {
+                errorEl.textContent = 'Please fill in all fields';
+                errorEl.style.display = 'block';
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, email, password })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    authToken = data.access_token;
+                    localStorage.setItem('authToken', authToken);
+                    currentUser = data.user;
+                    hideRegisterModal();
+                    showUserInfo();
+                    loadUserSettings();
+                } else {
+                    errorEl.textContent = data.detail || 'Registration failed';
+                    errorEl.style.display = 'block';
+                }
+            } catch (e) {
+                errorEl.textContent = 'Connection error';
+                errorEl.style.display = 'block';
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('authToken');
+            authToken = null;
+            currentUser = null;
+            showAuthButtons();
+            // Clear settings form
+            document.getElementById('settings-openai').value = '';
+            document.getElementById('settings-anthropic').value = '';
+            document.getElementById('settings-google').value = '';
+            document.getElementById('settings-mistral').value = '';
+            document.getElementById('settings-groq').value = '';
+            document.getElementById('settings-replicate').value = '';
+            // Clear main UI config (don't leave previous user's data)
+            document.getElementById('seed-prompt').value = '';
+            document.getElementById('judge-prompt').value = '';
+            document.getElementById('judge-instructions').value = '';
+            document.getElementById('sample-data-instructions').value = '';
+            document.getElementById('task-api-key').value = '';
+            document.getElementById('judge-api-key').value = '';
+            document.getElementById('image-api-key').value = '';
+            // Clear Langfuse config and prompts
+            document.getElementById('langfuse-host').value = 'https://cloud.langfuse.com';
+            document.getElementById('langfuse-public-key').value = '';
+            document.getElementById('langfuse-secret-key').value = '';
+            document.getElementById('prompts-list').innerHTML = '<div class="empty-state"><p>Connect to Langfuse to load your prompts, or create a new one</p></div>';
+            document.getElementById('connection-dot').className = 'status-dot disconnected';
+            document.getElementById('connection-text').textContent = 'Not connected';
+            // Reset Langfuse state variables
+            langfuseConnected = false;
+            currentPromptName = null;
+            // Reset connect button text
+            const connectBtn = document.querySelector('.langfuse-config .btn-primary');
+            if (connectBtn) connectBtn.textContent = 'Connect & Load Prompts';
+            // Clear test inputs
+            const list = document.getElementById('test-inputs-list');
+            list.innerHTML = `<div class="test-input-item">
+                <textarea class="sample-data-input" placeholder="Paste sample data here..."></textarea>
+                <button onclick="removeTestInput(this)">&times;</button>
+            </div>`;
+            // Show login overlay
+            document.getElementById('login-required-overlay').style.display = 'flex';
+        }
+
+        async function loadUserSettings() {
+            if (!authToken) return;
+
+            try {
+                const response = await fetch('/api/auth/settings', {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+
+                if (response.ok) {
+                    const settings = await response.json();
+                    // Populate Langfuse fields if user has them saved
+                    if (settings.langfuse_host) {
+                        document.getElementById('langfuse-host').value = settings.langfuse_host;
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to load settings:', e);
+            }
+        }
+
+        async function loadSettingsForEdit() {
+            if (!authToken) return;
+
+            try {
+                const response = await fetch('/api/auth/settings', {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+
+                if (response.ok) {
+                    const settings = await response.json();
+                    // Show masked values as placeholders
+                    document.getElementById('settings-openai').placeholder = settings.openai_api_key || 'sk-...';
+                    document.getElementById('settings-anthropic').placeholder = settings.anthropic_api_key || 'sk-ant-...';
+                    document.getElementById('settings-google').placeholder = settings.google_api_key || 'AIza...';
+                    document.getElementById('settings-mistral').placeholder = settings.mistral_api_key || '';
+                    document.getElementById('settings-groq').placeholder = settings.groq_api_key || 'gsk_...';
+                    document.getElementById('settings-replicate').placeholder = settings.replicate_api_key || 'r8_...';
+                    document.getElementById('settings-langfuse-host').value = settings.langfuse_host || '';
+                    document.getElementById('settings-langfuse-public').placeholder = settings.langfuse_public_key || 'pk-lf-...';
+                    document.getElementById('settings-langfuse-secret').placeholder = settings.langfuse_secret_key || 'sk-lf-...';
+                    document.getElementById('settings-langsmith-key').placeholder = settings.langsmith_api_key || 'lsv2_...';
+                    document.getElementById('settings-langsmith-project').value = settings.langsmith_project || '';
+
+                    // Also update trace-driven tab LangSmith fields if they have saved values
+                    if (settings.langsmith_api_key && settings.langsmith_api_key.length > 8) {
+                        document.getElementById('langsmith-api-key').placeholder = settings.langsmith_api_key;
+                    }
+                    if (settings.langsmith_project) {
+                        document.getElementById('langsmith-project').value = settings.langsmith_project;
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to load settings:', e);
+            }
+        }
+
+        async function saveSettings() {
+            if (!authToken) return;
+
+            const settings = {};
+            const msgEl = document.getElementById('settings-message');
+
+            // Only include fields that have values
+            const openai = document.getElementById('settings-openai').value;
+            const anthropic = document.getElementById('settings-anthropic').value;
+            const google = document.getElementById('settings-google').value;
+            const mistral = document.getElementById('settings-mistral').value;
+            const groq = document.getElementById('settings-groq').value;
+            const replicate = document.getElementById('settings-replicate').value;
+            const langfuseHost = document.getElementById('settings-langfuse-host').value;
+            const langfusePublic = document.getElementById('settings-langfuse-public').value;
+            const langfuseSecret = document.getElementById('settings-langfuse-secret').value;
+            const langsmithKey = document.getElementById('settings-langsmith-key').value;
+            const langsmithProject = document.getElementById('settings-langsmith-project').value;
+
+            if (openai) settings.openai_api_key = openai;
+            if (anthropic) settings.anthropic_api_key = anthropic;
+            if (google) settings.google_api_key = google;
+            if (mistral) settings.mistral_api_key = mistral;
+            if (groq) settings.groq_api_key = groq;
+            if (replicate) settings.replicate_api_key = replicate;
+            if (langfuseHost) settings.langfuse_host = langfuseHost;
+            if (langfusePublic) settings.langfuse_public_key = langfusePublic;
+            if (langfuseSecret) settings.langfuse_secret_key = langfuseSecret;
+            if (langsmithKey) settings.langsmith_api_key = langsmithKey;
+            if (langsmithProject) settings.langsmith_project = langsmithProject;
+
+            try {
+                const response = await fetch('/api/auth/settings', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify(settings)
+                });
+
+                if (response.ok) {
+                    msgEl.textContent = 'Settings saved successfully!';
+                    msgEl.style.color = '#2ecc71';
+                    msgEl.style.display = 'block';
+
+                    // Clear input fields (they'll show masked values as placeholders)
+                    document.getElementById('settings-openai').value = '';
+                    document.getElementById('settings-anthropic').value = '';
+                    document.getElementById('settings-google').value = '';
+                    document.getElementById('settings-mistral').value = '';
+                    document.getElementById('settings-groq').value = '';
+                    document.getElementById('settings-replicate').value = '';
+                    document.getElementById('settings-langfuse-public').value = '';
+                    document.getElementById('settings-langfuse-secret').value = '';
+                    document.getElementById('settings-langsmith-key').value = '';
+                    document.getElementById('settings-langsmith-project').value = '';
+
+                    // Reload placeholders
+                    loadSettingsForEdit();
+
+                    // Update Langfuse host in main UI
+                    if (langfuseHost) {
+                        document.getElementById('langfuse-host').value = langfuseHost;
+                    }
+
+                    setTimeout(() => {
+                        msgEl.style.display = 'none';
+                    }, 3000);
+                } else {
+                    const data = await response.json();
+                    msgEl.textContent = data.detail || 'Failed to save settings';
+                    msgEl.style.color = '#e74c3c';
+                    msgEl.style.display = 'block';
+                }
+            } catch (e) {
+                msgEl.textContent = 'Connection error';
+                msgEl.style.color = '#e74c3c';
+                msgEl.style.display = 'block';
+            }
+        }
+
+        // Helper to add auth header to fetch requests
+        function authHeaders(headers = {}) {
+            if (authToken) {
+                headers['Authorization'] = `Bearer ${authToken}`;
+            }
+            return headers;
+        }
+
+        // ==================== MODEL OPTIONS ====================
+
         const modelOptions = {
             openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
             anthropic: ['claude-opus-4-20250514', 'claude-sonnet-4-20250514', 'claude-3-5-sonnet-20241022', 'claude-3-haiku-20240307'],
@@ -1798,8 +2599,25 @@ FEEDBACK: [detailed feedback]</textarea>
             currentInitialScore = initialScore;
             currentBestScore = bestScore;
 
-            // Restore template variables in the evolved prompt
-            const restoredBestPrompt = restoreTemplateVariables(bestPrompt, seedPrompt);
+            // Check if bestPrompt already has template variables restored (from backend)
+            const varRegex = /\{\{(\w+)\}\}/g;
+            const seedVars = new Set();
+            let match;
+            while ((match = varRegex.exec(seedPrompt)) !== null) {
+                seedVars.add(match[1]);
+            }
+            varRegex.lastIndex = 0; // Reset regex
+            const promptVars = new Set();
+            while ((match = varRegex.exec(bestPrompt)) !== null) {
+                promptVars.add(match[1]);
+            }
+
+            // Only restore client-side if prompt is missing variables
+            // If prompt already has variables, it was restored by backend (LLM retemplatization)
+            const alreadyRestored = seedVars.size > 0 && promptVars.size >= seedVars.size * 0.8;
+            const restoredBestPrompt = alreadyRestored ? bestPrompt : restoreTemplateVariables(bestPrompt, seedPrompt);
+
+            console.log('[Compare] Seed vars:', seedVars.size, 'Prompt vars:', promptVars.size, 'Already restored:', alreadyRestored);
 
             const delta = (bestScore || 0) - (initialScore || 0);
             const diffHtml = renderDiff(seedPrompt, restoredBestPrompt);
@@ -1872,6 +2690,284 @@ FEEDBACK: [detailed feedback]</textarea>
 
             // Auto-switch to Compare Results tab when results are ready
             switchMainTab('compare');
+        }
+
+        // ===== TRACE-DRIVEN EVOLUTION FUNCTIONS =====
+
+        let traceAnalysisResult = null;
+
+        function onTraceSourceChange() {
+            const source = document.getElementById('trace-source').value;
+            const langsmithSection = document.getElementById('langsmith-config-section');
+
+            if (source === 'langsmith') {
+                langsmithSection.style.display = 'block';
+            } else {
+                langsmithSection.style.display = 'none';
+            }
+
+            // Hide analysis results when source changes
+            document.getElementById('trace-analysis-results').style.display = 'none';
+            document.getElementById('trace-evolution-start').style.display = 'none';
+            traceAnalysisResult = null;
+        }
+
+        function getLangSmithConfig() {
+            return {
+                api_key: document.getElementById('langsmith-api-key').value,
+                project_name: document.getElementById('langsmith-project').value || 'default'
+            };
+        }
+
+        function getTraceFilters() {
+            const timeRange = document.getElementById('trace-time-range').value;
+            const now = new Date();
+            let startTime = null;
+
+            switch(timeRange) {
+                case '24h':
+                    startTime = new Date(now - 24*60*60*1000).toISOString();
+                    break;
+                case '7d':
+                    startTime = new Date(now - 7*24*60*60*1000).toISOString();
+                    break;
+                case '30d':
+                    startTime = new Date(now - 30*24*60*60*1000).toISOString();
+                    break;
+            }
+
+            return {
+                prompt_name: document.getElementById('trace-prompt-name').value || null,
+                start_time: startTime,
+                max_score: parseInt(document.getElementById('trace-score-threshold').value) / 100,
+                limit: parseInt(document.getElementById('trace-limit').value)
+            };
+        }
+
+        async function fetchAndAnalyzeTraces() {
+            const source = document.getElementById('trace-source').value;
+            const filters = getTraceFilters();
+
+            const requestBody = {
+                source: source,
+                filters: filters,
+                analysis_model: getModelConfig('judge')
+            };
+
+            if (source === 'langfuse') {
+                const lfConfig = getLangfuseConfig();
+                if (!lfConfig.public_key || !lfConfig.secret_key) {
+                    alert('Please connect to Langfuse first (configure in left panel)');
+                    return;
+                }
+                requestBody.langfuse_config = lfConfig;
+            } else if (source === 'langsmith') {
+                const lsConfig = getLangSmithConfig();
+                if (!lsConfig.api_key) {
+                    alert('Please enter LangSmith API key');
+                    return;
+                }
+                requestBody.langsmith_config = lsConfig;
+            }
+
+            try {
+                // Show loading state
+                const btn = event.target;
+                const originalText = btn.textContent;
+                btn.textContent = 'Analyzing...';
+                btn.disabled = true;
+
+                const response = await fetch('/api/traces/analyze', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(authToken && {'Authorization': `Bearer ${authToken}`})
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to analyze traces');
+                }
+
+                traceAnalysisResult = await response.json();
+                displayTraceAnalysis(traceAnalysisResult);
+
+            } catch (error) {
+                console.error('Trace analysis error:', error);
+                alert('Failed to analyze traces: ' + error.message);
+            } finally {
+                const btn = event.target;
+                btn.textContent = 'Fetch & Analyze Traces';
+                btn.disabled = false;
+            }
+        }
+
+        function displayTraceAnalysis(result) {
+            // Show results section
+            document.getElementById('trace-analysis-results').style.display = 'block';
+
+            // Update stats
+            document.getElementById('trace-total-count').textContent = result.total_traces;
+            document.getElementById('trace-failing-count').textContent = result.failing_traces;
+            document.getElementById('trace-patterns-count').textContent = result.failure_patterns.length;
+
+            // Display failure patterns
+            const patternsList = document.getElementById('failure-patterns-list');
+            if (result.failure_patterns.length > 0) {
+                patternsList.innerHTML = result.failure_patterns.map(p => `
+                    <div style="background:rgba(231,76,60,0.1);padding:10px;border-radius:6px;margin-bottom:8px;border-left:3px solid #e74c3c;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+                            <span style="font-weight:bold;color:#e74c3c;">${p.category || 'UNKNOWN'}</span>
+                            <span style="font-size:0.8rem;color:#888;">${p.count || '?'} occurrences</span>
+                        </div>
+                        <div style="font-size:0.85rem;color:#ccc;">${p.description || 'No description'}</div>
+                        ${p.suggested_fix ? `<div style="font-size:0.8rem;color:#2ecc71;margin-top:5px;">Fix: ${p.suggested_fix}</div>` : ''}
+                    </div>
+                `).join('');
+            } else {
+                patternsList.innerHTML = '<p style="color:#888;font-size:0.9rem;">No failure patterns detected</p>';
+            }
+
+            // Display sample traces
+            const samplesList = document.getElementById('trace-samples-list');
+            const samples = result.samples.slice(0, 5);
+            if (samples.length > 0) {
+                samplesList.innerHTML = samples.map((s, i) => `
+                    <div style="background:rgba(0,0,0,0.2);padding:10px;border-radius:6px;margin-bottom:8px;">
+                        <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
+                            <span style="color:#00d4ff;font-weight:bold;">Trace ${i + 1}</span>
+                            <span style="color:${s.score && s.score < 0.5 ? '#e74c3c' : '#888'};">${s.score ? (s.score * 100).toFixed(0) + '%' : 'N/A'}</span>
+                        </div>
+                        <div style="font-size:0.8rem;color:#888;margin-bottom:3px;">Input:</div>
+                        <pre style="font-size:0.75rem;color:#ccc;white-space:pre-wrap;max-height:60px;overflow:hidden;">${(s.input || '').substring(0, 200)}...</pre>
+                        <div style="font-size:0.8rem;color:#888;margin-top:5px;margin-bottom:3px;">Output:</div>
+                        <pre style="font-size:0.75rem;color:#ccc;white-space:pre-wrap;max-height:60px;overflow:hidden;">${(s.output || '').substring(0, 200)}...</pre>
+                    </div>
+                `).join('');
+            } else {
+                samplesList.innerHTML = '<p style="color:#888;font-size:0.9rem;">No trace samples</p>';
+            }
+
+            // Display enhanced judge
+            document.getElementById('enhanced-judge-preview').textContent = result.suggested_judge_criteria || 'No judge enhancement generated';
+
+            // Show evolution start section if we have samples
+            if (result.samples.length > 0) {
+                document.getElementById('trace-evolution-start').style.display = 'block';
+                document.getElementById('trace-sample-count').textContent = result.samples.length;
+            }
+        }
+
+        async function startTraceEvolution() {
+            if (!traceAnalysisResult || !traceAnalysisResult.samples.length) {
+                alert('Please analyze traces first');
+                return;
+            }
+
+            const source = document.getElementById('trace-source').value;
+            const seedPrompt = document.getElementById('seed-prompt').value;
+            const judgePrompt = document.getElementById('judge-prompt').value;
+
+            if (!seedPrompt.trim()) {
+                alert('Please enter a seed prompt in the Setup tab');
+                return;
+            }
+
+            const requestBody = {
+                seed_prompt: seedPrompt,
+                judge_prompt: judgePrompt,
+                trace_source: source,
+                trace_filters: getTraceFilters(),
+                trace_samples: traceAnalysisResult.samples,
+                task_model: getModelConfig('task'),
+                judge_model: getModelConfig('judge'),
+                max_iterations: parseInt(document.getElementById('max-iterations').value) || 10,
+                population_size: parseInt(document.getElementById('population-size')?.value) || 5,
+                enhance_judge_with_patterns: true
+            };
+
+            if (source === 'langfuse') {
+                requestBody.langfuse_config = getLangfuseConfig();
+            } else if (source === 'langsmith') {
+                requestBody.langsmith_config = getLangSmithConfig();
+            }
+
+            try {
+                const response = await fetch('/api/evolution/trace-driven/start', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(authToken && {'Authorization': `Bearer ${authToken}`})
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to start evolution');
+                }
+
+                const data = await response.json();
+                currentSessionId = data.session_id;
+
+                // Use existing streaming UI
+                connectToStream(currentSessionId, requestBody.max_iterations);
+
+                // Switch to Setup tab to see progress
+                switchMainTab('setup');
+                alert(`Started trace-driven evolution with ${data.trace_count} samples!`);
+
+            } catch (error) {
+                console.error('Error starting trace evolution:', error);
+                alert('Failed to start evolution: ' + error.message);
+            }
+        }
+
+        async function reportFailure() {
+            const promptName = document.getElementById('report-prompt-name').value;
+            const inputText = document.getElementById('report-input').value;
+            const outputText = document.getElementById('report-output').value;
+            const expectedOutput = document.getElementById('report-expected').value;
+
+            if (!promptName || !inputText || !outputText) {
+                alert('Please fill in prompt name, input, and bad output');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/feedback/report-bad-output', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(authToken && {'Authorization': `Bearer ${authToken}`})
+                    },
+                    body: JSON.stringify({
+                        prompt_name: promptName,
+                        input_text: inputText,
+                        output_text: outputText,
+                        expected_output: expectedOutput || null,
+                        trace_source: 'manual'
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to report failure');
+                }
+
+                // Clear form
+                document.getElementById('report-input').value = '';
+                document.getElementById('report-output').value = '';
+                document.getElementById('report-expected').value = '';
+
+                alert('Failure reported successfully! It will be used in future evolutions.');
+
+            } catch (error) {
+                console.error('Error reporting failure:', error);
+                alert('Failed to report: ' + error.message);
+            }
         }
 
         // ===== LANGFUSE FUNCTIONS =====
@@ -2581,9 +3677,33 @@ FEEDBACK: [detailed feedback]</textarea>
                 return;
             }
 
-            // If no template vars and no test inputs, use a placeholder
+            // If no template vars and no test inputs, use placeholders
             if (!hasTemplateVars && config.test_inputs.length === 0) {
-                config.test_inputs = [''];  // Empty placeholder for prompts without variables
+                if (outputType === 'image') {
+                    // For image mode, generate variations based on user selection
+                    const imagesPerRound = parseInt(document.getElementById('images-per-round').value) || 8;
+                    const allVariations = [
+                        'Variation 1: professional style',
+                        'Variation 2: creative and vibrant',
+                        'Variation 3: minimalist design',
+                        'Variation 4: detailed and realistic',
+                        'Variation 5: modern and sleek',
+                        'Variation 6: colorful and energetic',
+                        'Variation 7: elegant and sophisticated',
+                        'Variation 8: bold and impactful',
+                        'Variation 9: artistic and abstract',
+                        'Variation 10: clean and simple',
+                        'Variation 11: dynamic and action-oriented',
+                        'Variation 12: warm and inviting',
+                        'Variation 13: cool and tech-focused',
+                        'Variation 14: natural and organic',
+                        'Variation 15: futuristic and innovative',
+                        'Variation 16: classic and timeless'
+                    ];
+                    config.test_inputs = allVariations.slice(0, imagesPerRound);
+                } else {
+                    config.test_inputs = [''];  // Empty placeholder for text prompts without variables
+                }
             }
 
             // Update UI
@@ -2612,9 +3732,14 @@ FEEDBACK: [detailed feedback]</textarea>
             switchTab('best');
 
             try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (authToken) {
+                    headers['Authorization'] = `Bearer ${authToken}`;
+                }
+
                 const response = await fetch('/api/evolution/start', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: headers,
                     body: JSON.stringify(config)
                 });
 
@@ -2632,7 +3757,11 @@ FEEDBACK: [detailed feedback]</textarea>
         }
 
         function connectToStream(sessionId, maxIterations) {
-            eventSource = new EventSource(`/api/evolution/${sessionId}/stream`);
+            // EventSource doesn't support headers, so pass token via query param
+            const streamUrl = authToken
+                ? `/api/evolution/${sessionId}/stream?token=${encodeURIComponent(authToken)}`
+                : `/api/evolution/${sessionId}/stream`;
+            eventSource = new EventSource(streamUrl);
 
             eventSource.addEventListener('log', (event) => {
                 const log = JSON.parse(event.data);
@@ -3167,18 +4296,68 @@ FEEDBACK: [detailed feedback]</textarea>
                 imageProvider: document.getElementById('image-provider').value,
                 imageModel: document.getElementById('image-model').value,
                 imageApiKey: document.getElementById('image-api-key').value,
-                outputType: getOutputType()
+                outputType: getOutputType(),
+                sampleDataInstructions: document.getElementById('sample-data-instructions').value
             };
+
+            // Save to localStorage always (for offline/backup)
             localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+
+            // Also save to server if logged in (for per-user persistence)
+            if (authToken) {
+                fetch('/api/auth/settings', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify({ prompt_config: config })
+                }).catch(err => console.log('Failed to save config to server:', err));
+            }
         }
 
-        function loadConfig() {
-            const saved = localStorage.getItem(STORAGE_KEY);
-            if (!saved) return;
+        async function loadConfig() {
+            let config = null;
 
+            // Try to load from server if logged in
+            if (authToken) {
+                try {
+                    const response = await fetch('/api/auth/settings', {
+                        headers: { 'Authorization': `Bearer ${authToken}` }
+                    });
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.prompt_config && Object.keys(data.prompt_config).length > 0) {
+                            config = data.prompt_config;
+                            console.log('[Config] Loaded from server');
+                        }
+                    }
+                } catch (err) {
+                    console.log('Failed to load config from server:', err);
+                }
+            }
+
+            // Fall back to localStorage if no server config
+            if (!config) {
+                const saved = localStorage.getItem(STORAGE_KEY);
+                if (saved) {
+                    try {
+                        config = JSON.parse(saved);
+                        console.log('[Config] Loaded from localStorage');
+                    } catch (e) {
+                        console.error('Failed to parse localStorage config:', e);
+                        return;
+                    }
+                }
+            }
+
+            if (!config) return;
+
+            applyConfig(config);
+        }
+
+        function applyConfig(config) {
             try {
-                const config = JSON.parse(saved);
-
                 if (config.langfuse) {
                     document.getElementById('langfuse-host').value = config.langfuse.host || 'https://cloud.langfuse.com';
                     document.getElementById('langfuse-public-key').value = config.langfuse.public_key || '';
@@ -3202,6 +4381,7 @@ FEEDBACK: [detailed feedback]</textarea>
                 if (config.seedPrompt) document.getElementById('seed-prompt').value = config.seedPrompt;
                 if (config.judgePrompt) document.getElementById('judge-prompt').value = config.judgePrompt;
                 if (config.judgeInstructions) document.getElementById('judge-instructions').value = config.judgeInstructions;
+                if (config.sampleDataInstructions) document.getElementById('sample-data-instructions').value = config.sampleDataInstructions;
 
                 if (config.testInputs && config.testInputs.length > 0) {
                     const list = document.getElementById('test-inputs-list');
@@ -3232,7 +4412,7 @@ FEEDBACK: [detailed feedback]</textarea>
                 }
 
             } catch (e) {
-                console.error('Failed to load config:', e);
+                console.error('Failed to apply config:', e);
             }
         }
 
