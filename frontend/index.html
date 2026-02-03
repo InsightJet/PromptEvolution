@@ -1005,6 +1005,7 @@
             <div class="tabs" id="main-tabs" style="margin-bottom:15px;">
                 <button class="tab-btn active" onclick="switchMainTab('setup')">Setup</button>
                 <button class="tab-btn" onclick="switchMainTab('trace-driven')">Trace-Driven</button>
+                <button class="tab-btn" onclick="switchMainTab('calibration')">🤖 Calibration</button>
                 <button class="tab-btn" onclick="switchMainTab('compare')">Compare Results</button>
             </div>
 
@@ -1286,7 +1287,7 @@ FEEDBACK: [detailed feedback]</textarea>
                         </div>
                     </div>
 
-                    <button class="btn btn-primary" onclick="fetchAndAnalyzeTraces()" style="width:100%;margin-bottom:15px;">
+                    <button class="btn btn-primary" onclick="fetchAndAnalyzeTraces(event)" style="width:100%;margin-bottom:15px;">
                         Fetch & Analyze Traces
                     </button>
                 </div>
@@ -1313,11 +1314,31 @@ FEEDBACK: [detailed feedback]</textarea>
                     <!-- Failure Patterns -->
                     <div id="failure-patterns-list" style="margin-bottom:15px;"></div>
 
-                    <!-- Sample Traces -->
-                    <details style="margin-bottom:15px;">
-                        <summary style="cursor:pointer;color:#00d4ff;font-weight:600;margin-bottom:10px;">Sample Failing Traces</summary>
-                        <div id="trace-samples-list" style="max-height:200px;overflow-y:auto;"></div>
-                    </details>
+                    <!-- Trace Review Section -->
+                    <div style="margin-bottom:15px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                            <h4 style="color:#00d4ff;margin:0;">Review Traces</h4>
+                            <div style="font-size:0.8rem;color:#888;">
+                                <span id="selected-bad-count">0</span> marked as bad |
+                                <span id="selected-good-count">0</span> marked as good
+                            </div>
+                        </div>
+                        <p style="font-size:0.8rem;color:#888;margin-bottom:10px;">
+                            Click on traces to expand and review. Mark each trace as 👎 Bad or 👍 Good to use for evolution.
+                        </p>
+                        <div id="trace-samples-list" style="max-height:500px;overflow-y:auto;"></div>
+                        <div style="display:flex;gap:10px;margin-top:10px;">
+                            <button class="btn btn-secondary" onclick="markAllTracesBad()" style="flex:1;font-size:0.85rem;">
+                                Mark All as Bad
+                            </button>
+                            <button class="btn btn-secondary" onclick="markAllTracesGood()" style="flex:1;font-size:0.85rem;">
+                                Mark All as Good
+                            </button>
+                            <button class="btn btn-secondary" onclick="clearTraceMarks()" style="flex:1;font-size:0.85rem;">
+                                Clear All
+                            </button>
+                        </div>
+                    </div>
 
                     <!-- Enhanced Judge Preview -->
                     <details>
@@ -1329,9 +1350,12 @@ FEEDBACK: [detailed feedback]</textarea>
                 <!-- Start Evolution -->
                 <div class="card" id="trace-evolution-start" style="display:none;">
                     <h3 style="color:#2ecc71;margin-bottom:15px;">Start Trace-Driven Evolution</h3>
-                    <p style="font-size:0.85rem;color:#888;margin-bottom:15px;">
+                    <p style="font-size:0.85rem;color:#888;margin-bottom:10px;">
                         The evolution will use <span id="trace-sample-count">0</span> trace samples as training data.
                         The judge will be enhanced with detected failure patterns.
+                    </p>
+                    <p style="font-size:0.8rem;color:#f39c12;margin-bottom:15px;background:rgba(243,156,18,0.1);padding:8px;border-radius:6px;">
+                        ⚠️ Make sure you have a <strong>seed prompt</strong> entered in the <a href="#" onclick="switchMainTab('setup');return false;" style="color:#00d4ff;">Setup tab</a> before starting.
                     </p>
                     <button class="btn btn-success" onclick="startTraceEvolution()" style="width:100%;">
                         Start Evolution with Traces
@@ -1363,6 +1387,254 @@ FEEDBACK: [detailed feedback]</textarea>
                     <button class="btn btn-secondary" onclick="reportFailure()" style="width:100%;">Report Failure</button>
                 </div>
             </div><!-- End Trace-Driven Tab -->
+
+            <!-- Calibration Tab - Autonomous Conversation Calibration -->
+            <div class="main-tab-content" id="main-tab-calibration" style="display:none;">
+                <div class="card">
+                    <h3 style="color:#00d4ff;margin-bottom:15px;">🤖 Autonomous Prompt Calibration</h3>
+                    <p style="font-size:0.85rem;color:#888;margin-bottom:15px;">
+                        Let AI simulate conversations with your prompts, find weaknesses, and automatically improve them.
+                    </p>
+
+                    <!-- Domain Context -->
+                    <div class="form-group">
+                        <label>Domain Context <span style="color:#888;font-weight:normal;">(describe what your assistant does)</span></label>
+                        <textarea id="calibration-domain" style="min-height:80px;" placeholder="e.g., You are building a UI testing assistant that helps QA engineers manage test cases, analyze screenshots, and generate test steps..."></textarea>
+                    </div>
+
+                    <!-- System Prompt -->
+                    <div class="form-group">
+                        <label>System Prompt to Calibrate</label>
+                        <textarea id="calibration-system-prompt" style="min-height:120px;" placeholder="Enter your system prompt here, or it will use the one from the Setup tab..."></textarea>
+                        <button class="btn btn-secondary btn-sm" onclick="copyPromptFromSetup()" style="margin-top:5px;">
+                            ↩ Copy from Setup Tab
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Model Configuration -->
+                <div class="card">
+                    <h3 style="color:#888;margin-bottom:15px;">Model Configuration</h3>
+                    <p style="font-size:0.8rem;color:#666;margin-bottom:15px;">
+                        Configure models for conversation simulation and evaluation.
+                    </p>
+
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;">
+                        <!-- Assistant Model (runs your prompts) -->
+                        <div style="background:rgba(0,212,255,0.05);padding:12px;border-radius:8px;">
+                            <div style="font-size:0.85rem;color:#00d4ff;font-weight:600;margin-bottom:10px;">🤖 Assistant Model</div>
+                            <div class="form-group" style="margin-bottom:8px;">
+                                <label style="font-size:0.75rem;">Provider</label>
+                                <select id="cal-assistant-provider" style="padding:6px;" onchange="updateCalibrationModelOptions('cal-assistant')">
+                                    <option value="openai">OpenAI</option>
+                                    <option value="anthropic">Anthropic</option>
+                                    <option value="google">Google</option>
+                                    <option value="groq">Groq</option>
+                                </select>
+                            </div>
+                            <div class="form-group" style="margin-bottom:8px;">
+                                <label style="font-size:0.75rem;">Model</label>
+                                <select id="cal-assistant-model" style="padding:6px;"></select>
+                            </div>
+                            <div class="form-group" style="margin-bottom:0;">
+                                <label style="font-size:0.75rem;">API Key</label>
+                                <input type="password" id="cal-assistant-api-key" placeholder="sk-...">
+                            </div>
+                        </div>
+
+                        <!-- Judge Model (evaluates conversations) -->
+                        <div style="background:rgba(46,204,113,0.05);padding:12px;border-radius:8px;">
+                            <div style="font-size:0.85rem;color:#2ecc71;font-weight:600;margin-bottom:10px;">⚖️ Judge Model</div>
+                            <div class="form-group" style="margin-bottom:8px;">
+                                <label style="font-size:0.75rem;">Provider</label>
+                                <select id="cal-judge-provider" style="padding:6px;" onchange="updateCalibrationModelOptions('cal-judge')">
+                                    <option value="openai">OpenAI</option>
+                                    <option value="anthropic">Anthropic</option>
+                                    <option value="google">Google</option>
+                                    <option value="groq">Groq</option>
+                                </select>
+                            </div>
+                            <div class="form-group" style="margin-bottom:8px;">
+                                <label style="font-size:0.75rem;">Model</label>
+                                <select id="cal-judge-model" style="padding:6px;"></select>
+                            </div>
+                            <div class="form-group" style="margin-bottom:0;">
+                                <label style="font-size:0.75rem;">API Key</label>
+                                <input type="password" id="cal-judge-api-key" placeholder="sk-...">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="margin-top:10px;">
+                        <button class="btn btn-secondary btn-sm" onclick="copyModelsFromMainPanel()" style="width:100%;">
+                            ↩ Copy Models from Left Panel
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Judge Criteria -->
+                <div class="card">
+                    <h3 style="color:#888;margin-bottom:15px;">Conversation Judge Criteria</h3>
+                    <p style="font-size:0.8rem;color:#666;margin-bottom:10px;">
+                        Define what makes a good conversation. The judge will use this to score each simulated conversation.
+                    </p>
+                    <div class="form-group">
+                        <label>Additional Instructions for Judge Generation <span style="color:#888;font-weight:normal;">(optional)</span></label>
+                        <input type="text" id="calibration-judge-instructions" placeholder="e.g., Focus on format compliance, penalize hallucinations heavily, check for tool usage...">
+                    </div>
+                    <div class="form-group">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <label style="margin: 0;">Custom Evaluation Criteria <span style="color:#888;font-weight:normal;">(domain-specific rules)</span></label>
+                            <button class="btn btn-secondary btn-sm" id="generate-calibration-judge-btn" onclick="generateCalibrationJudge()">Generate Judge</button>
+                        </div>
+                        <textarea id="calibration-judge-criteria" style="min-height:120px;" placeholder="Examples of criteria to add:
+
+- When user asks for a screenshot, assistant MUST return [[screenshot:state_X]] format, NOT a text description
+- Assistant should reference test case IDs in format [[tc:ID:name]]
+- Never hallucinate test case IDs or component names
+- If information is missing, ask for clarification instead of guessing
+- Keep responses concise for technical users"></textarea>
+                    </div>
+                </div>
+
+                <!-- Calibration Settings -->
+                <div class="card">
+                    <h3 style="color:#888;margin-bottom:15px;">Calibration Settings</h3>
+
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;">
+                        <div class="form-group">
+                            <label>Scenarios per Iteration</label>
+                            <input type="number" id="calibration-scenarios" value="10" min="3" max="30">
+                        </div>
+                        <div class="form-group">
+                            <label>Max Iterations</label>
+                            <input type="number" id="calibration-iterations" value="5" min="1" max="20">
+                        </div>
+                        <div class="form-group">
+                            <label>Max Turns per Conversation</label>
+                            <input type="number" id="calibration-max-turns" value="6" min="2" max="15">
+                        </div>
+                        <div class="form-group">
+                            <label>Target Score</label>
+                            <input type="number" id="calibration-target" value="85" min="50" max="100">
+                        </div>
+                    </div>
+
+                    <div style="margin-top:15px;display:flex;gap:10px;">
+                        <button class="btn btn-primary" onclick="startCalibration()" id="start-calibration-btn" style="flex:1;">
+                            🚀 Start Calibration
+                        </button>
+                        <button class="btn btn-secondary" onclick="quickEvaluate()" style="flex:1;">
+                            🔍 Quick Evaluate
+                        </button>
+                        <button class="btn btn-secondary" onclick="testSingleConversation()" style="flex:1;">
+                            💬 Test One Chat
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Calibration Progress (hidden until started) -->
+                <div class="card" id="calibration-progress" style="display:none;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
+                        <h3 style="color:#00d4ff;margin:0;">Calibration Progress</h3>
+                        <div>
+                            <span id="calibration-status-badge" style="background:#f39c12;color:#fff;padding:4px 10px;border-radius:12px;font-size:0.8rem;">Running</span>
+                            <button class="btn btn-secondary btn-sm" onclick="stopCalibration()" id="stop-calibration-btn" style="margin-left:10px;">Stop</button>
+                        </div>
+                    </div>
+
+                    <!-- Progress Stats -->
+                    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:15px;">
+                        <div style="background:rgba(255,255,255,0.05);padding:12px;border-radius:8px;text-align:center;">
+                            <div style="font-size:1.3rem;font-weight:bold;color:#00d4ff;" id="cal-iteration">0/0</div>
+                            <div style="font-size:0.75rem;color:#888;">Iteration</div>
+                        </div>
+                        <div style="background:rgba(255,255,255,0.05);padding:12px;border-radius:8px;text-align:center;">
+                            <div style="font-size:1.3rem;font-weight:bold;color:#2ecc71;" id="cal-current-score">-</div>
+                            <div style="font-size:0.75rem;color:#888;">Current Score</div>
+                        </div>
+                        <div style="background:rgba(255,255,255,0.05);padding:12px;border-radius:8px;text-align:center;">
+                            <div style="font-size:1.3rem;font-weight:bold;color:#e74c3c;" id="cal-success-rate">-</div>
+                            <div style="font-size:0.75rem;color:#888;">Success Rate</div>
+                        </div>
+                        <div style="background:rgba(46,204,113,0.1);padding:12px;border-radius:8px;text-align:center;">
+                            <div style="font-size:1.3rem;font-weight:bold;color:#2ecc71;" id="cal-improvement">+0</div>
+                            <div style="font-size:0.75rem;color:#888;">Improvement</div>
+                        </div>
+                    </div>
+
+                    <!-- Progress Bar -->
+                    <div style="background:rgba(255,255,255,0.1);border-radius:8px;overflow:hidden;height:8px;margin-bottom:15px;">
+                        <div id="calibration-progress-bar" style="background:linear-gradient(90deg,#00d4ff,#2ecc71);height:100%;width:0%;transition:width 0.3s;"></div>
+                    </div>
+
+                    <!-- Failure Patterns -->
+                    <div style="margin-bottom:15px;">
+                        <h4 style="color:#e74c3c;font-size:0.9rem;margin-bottom:10px;">Detected Failure Patterns</h4>
+                        <div id="cal-failure-patterns" style="max-height:150px;overflow-y:auto;">
+                            <p style="color:#666;font-size:0.85rem;">No patterns detected yet...</p>
+                        </div>
+                    </div>
+
+                    <!-- Live Log -->
+                    <details open>
+                        <summary style="cursor:pointer;color:#00d4ff;font-weight:600;margin-bottom:10px;">Live Log</summary>
+                        <div id="calibration-log" style="background:rgba(0,0,0,0.3);padding:10px;border-radius:6px;max-height:200px;overflow-y:auto;font-family:monospace;font-size:0.8rem;">
+                        </div>
+                    </details>
+                </div>
+
+                <!-- Results (hidden until completed) -->
+                <div class="card" id="calibration-results" style="display:none;">
+                    <h3 style="color:#2ecc71;margin-bottom:15px;">✅ Calibration Complete</h3>
+
+                    <div class="improvement-banner" style="margin-bottom:15px;">
+                        <span style="font-size:1rem;">Score improved by </span>
+                        <span class="delta" id="cal-final-delta" style="font-size:1.5rem;">+0</span>
+                        <span style="font-size:1rem;"> points</span>
+                        <div style="font-size:0.9rem;color:#888;margin-top:6px;">
+                            <span id="cal-initial-score">-</span> → <span id="cal-final-score">-</span>
+                        </div>
+                    </div>
+
+                    <!-- What Changed Section -->
+                    <div id="cal-diff-section" style="display:none;margin-bottom:15px;">
+                        <div class="diff-legend" style="margin-bottom:10px;">
+                            <span><div class="legend-box removed"></div> Removed</span>
+                            <span><div class="legend-box added"></div> Added</span>
+                        </div>
+                        <h4 style="color:#00d4ff;margin-bottom:10px;">What Changed</h4>
+                        <div class="diff-view" id="cal-diff-view" style="max-height:250px;">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Calibrated System Prompt</label>
+                        <textarea id="calibrated-prompt-output" style="min-height:150px;" readonly></textarea>
+                    </div>
+
+                    <div style="display:flex;gap:10px;">
+                        <button class="btn btn-primary" onclick="useCalibratedPrompt()" style="flex:1;">
+                            Use This Prompt
+                        </button>
+                        <button class="btn btn-secondary" onclick="copyToClipboard('calibrated-prompt-output')" style="flex:1;">
+                            📋 Copy to Clipboard
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Live Conversations (shown during calibration) -->
+                <div class="card" id="cal-conversations-section" style="display:none;">
+                    <h3 style="color:#888;margin-bottom:15px;">📡 Live Conversations</h3>
+                    <p style="font-size:0.8rem;color:#666;margin-bottom:10px;">
+                        Watch conversations as they happen in real-time.
+                    </p>
+                    <div id="cal-live-conversations" style="max-height:500px;overflow-y:auto;">
+                    </div>
+                    <div id="cal-conversations-list" style="max-height:400px;overflow-y:auto;display:none;">
+                    </div>
+                </div>
+            </div><!-- End Calibration Tab -->
 
             <div class="main-tab-content" id="main-tab-compare" style="display:none;">
                 <div class="card">
@@ -2696,6 +2968,16 @@ FEEDBACK: [detailed feedback]</textarea>
 
         let traceAnalysisResult = null;
 
+        function getModelConfig(type) {
+            // Get model configuration for task or judge
+            const prefix = type === 'task' ? 'task' : 'judge';
+            return {
+                provider: document.getElementById(`${prefix}-provider`).value,
+                model: document.getElementById(`${prefix}-model`).value,
+                api_key: document.getElementById(`${prefix}-api-key`).value
+            };
+        }
+
         function onTraceSourceChange() {
             const source = document.getElementById('trace-source').value;
             const langsmithSection = document.getElementById('langsmith-config-section');
@@ -2713,9 +2995,13 @@ FEEDBACK: [detailed feedback]</textarea>
         }
 
         function getLangSmithConfig() {
+            const apiKey = document.getElementById('langsmith-api-key').value;
+            const projectName = document.getElementById('langsmith-project').value || 'default';
+            console.log('LangSmith config:', { api_key: apiKey ? '***' + apiKey.slice(-8) : '(empty)', project_name: projectName });
             return {
-                api_key: document.getElementById('langsmith-api-key').value,
-                project_name: document.getElementById('langsmith-project').value || 'default'
+                api_key: apiKey,
+                project_name: projectName,
+                base_url: 'https://api.smith.langchain.com'
             };
         }
 
@@ -2744,7 +3030,7 @@ FEEDBACK: [detailed feedback]</textarea>
             };
         }
 
-        async function fetchAndAnalyzeTraces() {
+        async function fetchAndAnalyzeTraces(event) {
             const source = document.getElementById('trace-source').value;
             const filters = getTraceFilters();
 
@@ -2768,14 +3054,18 @@ FEEDBACK: [detailed feedback]</textarea>
                     return;
                 }
                 requestBody.langsmith_config = lsConfig;
+                console.log('Sending trace analysis request with LangSmith config');
             }
+
+            // Get the button element
+            const btn = event ? event.target : document.querySelector('#main-tab-trace-driven button[onclick*="fetchAndAnalyzeTraces"]');
 
             try {
                 // Show loading state
-                const btn = event.target;
-                const originalText = btn.textContent;
-                btn.textContent = 'Analyzing...';
-                btn.disabled = true;
+                if (btn) {
+                    btn.textContent = 'Analyzing...';
+                    btn.disabled = true;
+                }
 
                 const response = await fetch('/api/traces/analyze', {
                     method: 'POST',
@@ -2798,9 +3088,10 @@ FEEDBACK: [detailed feedback]</textarea>
                 console.error('Trace analysis error:', error);
                 alert('Failed to analyze traces: ' + error.message);
             } finally {
-                const btn = event.target;
-                btn.textContent = 'Fetch & Analyze Traces';
-                btn.disabled = false;
+                if (btn) {
+                    btn.textContent = 'Fetch & Analyze Traces';
+                    btn.disabled = false;
+                }
             }
         }
 
@@ -2830,24 +3121,75 @@ FEEDBACK: [detailed feedback]</textarea>
                 patternsList.innerHTML = '<p style="color:#888;font-size:0.9rem;">No failure patterns detected</p>';
             }
 
-            // Display sample traces
+            // Display sample traces with review UI
             const samplesList = document.getElementById('trace-samples-list');
-            const samples = result.samples.slice(0, 5);
+            const samples = result.samples;
             if (samples.length > 0) {
-                samplesList.innerHTML = samples.map((s, i) => `
-                    <div style="background:rgba(0,0,0,0.2);padding:10px;border-radius:6px;margin-bottom:8px;">
-                        <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
-                            <span style="color:#00d4ff;font-weight:bold;">Trace ${i + 1}</span>
-                            <span style="color:${s.score && s.score < 0.5 ? '#e74c3c' : '#888'};">${s.score ? (s.score * 100).toFixed(0) + '%' : 'N/A'}</span>
+                // Store traces globally for marking
+                window.traceData = samples.map((s, i) => ({...s, index: i, rating: null}));
+
+                samplesList.innerHTML = samples.map((s, i) => {
+                    // Parse input/output to make them more readable
+                    let inputDisplay = s.input || '';
+                    let outputDisplay = s.output || '';
+
+                    // Try to extract human-readable content from LangChain format
+                    try {
+                        const inputObj = JSON.parse(inputDisplay);
+                        if (inputObj.messages) {
+                            const msgs = Array.isArray(inputObj.messages[0]) ? inputObj.messages[0] : inputObj.messages;
+                            const lastHuman = msgs.filter(m => m.kwargs?.content && (m.id?.includes('HumanMessage') || m.type === 'human')).pop();
+                            if (lastHuman) inputDisplay = lastHuman.kwargs.content;
+                        }
+                    } catch(e) {}
+
+                    try {
+                        const outputObj = JSON.parse(outputDisplay);
+                        if (outputObj.output) outputDisplay = outputObj.output;
+                        else if (outputObj.content) outputDisplay = outputObj.content;
+                    } catch(e) {}
+
+                    const runName = s.metadata?.name || 'Unknown';
+
+                    return `
+                    <div class="trace-item" id="trace-${i}" style="background:rgba(0,0,0,0.2);padding:12px;border-radius:8px;margin-bottom:10px;border:2px solid transparent;" data-index="${i}">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                            <div style="display:flex;align-items:center;gap:10px;">
+                                <span style="color:#00d4ff;font-weight:bold;font-size:0.9rem;">Trace ${i + 1}</span>
+                                <span style="font-size:0.75rem;color:#666;background:rgba(255,255,255,0.1);padding:2px 6px;border-radius:4px;">${runName}</span>
+                            </div>
+                            <div style="display:flex;gap:8px;">
+                                <button class="trace-rate-btn" onclick="rateTrace(${i}, 'bad')" style="background:${s.rating === 'bad' ? '#e74c3c' : 'rgba(231,76,60,0.2)'};border:none;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:0.85rem;color:#fff;">
+                                    👎 Bad
+                                </button>
+                                <button class="trace-rate-btn" onclick="rateTrace(${i}, 'good')" style="background:${s.rating === 'good' ? '#2ecc71' : 'rgba(46,204,113,0.2)'};border:none;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:0.85rem;color:#fff;">
+                                    👍 Good
+                                </button>
+                            </div>
                         </div>
-                        <div style="font-size:0.8rem;color:#888;margin-bottom:3px;">Input:</div>
-                        <pre style="font-size:0.75rem;color:#ccc;white-space:pre-wrap;max-height:60px;overflow:hidden;">${(s.input || '').substring(0, 200)}...</pre>
-                        <div style="font-size:0.8rem;color:#888;margin-top:5px;margin-bottom:3px;">Output:</div>
-                        <pre style="font-size:0.75rem;color:#ccc;white-space:pre-wrap;max-height:60px;overflow:hidden;">${(s.output || '').substring(0, 200)}...</pre>
+
+                        <details style="margin-bottom:8px;">
+                            <summary style="cursor:pointer;color:#888;font-size:0.8rem;margin-bottom:5px;">📥 Input (click to expand)</summary>
+                            <pre style="font-size:0.8rem;color:#ccc;white-space:pre-wrap;background:rgba(0,0,0,0.3);padding:10px;border-radius:6px;max-height:200px;overflow-y:auto;">${escapeHtml(inputDisplay)}</pre>
+                        </details>
+
+                        <details open>
+                            <summary style="cursor:pointer;color:#888;font-size:0.8rem;margin-bottom:5px;">📤 Output (click to collapse)</summary>
+                            <pre style="font-size:0.8rem;color:#ccc;white-space:pre-wrap;background:rgba(0,0,0,0.3);padding:10px;border-radius:6px;max-height:300px;overflow-y:auto;">${escapeHtml(outputDisplay)}</pre>
+                        </details>
+
+                        ${s.expected_output ? `
+                        <details style="margin-top:8px;">
+                            <summary style="cursor:pointer;color:#2ecc71;font-size:0.8rem;margin-bottom:5px;">✓ Expected Output</summary>
+                            <pre style="font-size:0.8rem;color:#ccc;white-space:pre-wrap;background:rgba(46,204,113,0.1);padding:10px;border-radius:6px;max-height:150px;overflow-y:auto;">${escapeHtml(s.expected_output)}</pre>
+                        </details>
+                        ` : ''}
                     </div>
-                `).join('');
+                `}).join('');
+
+                updateTraceCounters();
             } else {
-                samplesList.innerHTML = '<p style="color:#888;font-size:0.9rem;">No trace samples</p>';
+                samplesList.innerHTML = '<p style="color:#888;font-size:0.9rem;">No trace samples found</p>';
             }
 
             // Display enhanced judge
@@ -2860,18 +3202,130 @@ FEEDBACK: [detailed feedback]</textarea>
             }
         }
 
+        // Helper function to escape HTML
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Rate a trace as good or bad
+        function rateTrace(index, rating) {
+            if (!window.traceData || !window.traceData[index]) return;
+
+            // Toggle rating if clicking same button
+            if (window.traceData[index].rating === rating) {
+                window.traceData[index].rating = null;
+            } else {
+                window.traceData[index].rating = rating;
+            }
+
+            // Update the trace item visual
+            const traceItem = document.getElementById(`trace-${index}`);
+            if (traceItem) {
+                const buttons = traceItem.querySelectorAll('.trace-rate-btn');
+                buttons[0].style.background = window.traceData[index].rating === 'bad' ? '#e74c3c' : 'rgba(231,76,60,0.2)';
+                buttons[1].style.background = window.traceData[index].rating === 'good' ? '#2ecc71' : 'rgba(46,204,113,0.2)';
+
+                // Update border color
+                if (window.traceData[index].rating === 'bad') {
+                    traceItem.style.borderColor = '#e74c3c';
+                } else if (window.traceData[index].rating === 'good') {
+                    traceItem.style.borderColor = '#2ecc71';
+                } else {
+                    traceItem.style.borderColor = 'transparent';
+                }
+            }
+
+            updateTraceCounters();
+        }
+
+        function markAllTracesBad() {
+            if (!window.traceData) return;
+            window.traceData.forEach((_, i) => {
+                window.traceData[i].rating = 'bad';
+                rateTrace(i, 'bad');
+            });
+        }
+
+        function markAllTracesGood() {
+            if (!window.traceData) return;
+            window.traceData.forEach((_, i) => {
+                window.traceData[i].rating = 'good';
+                rateTrace(i, 'good');
+            });
+        }
+
+        function clearTraceMarks() {
+            if (!window.traceData) return;
+            window.traceData.forEach((_, i) => {
+                window.traceData[i].rating = null;
+                const traceItem = document.getElementById(`trace-${i}`);
+                if (traceItem) {
+                    const buttons = traceItem.querySelectorAll('.trace-rate-btn');
+                    buttons[0].style.background = 'rgba(231,76,60,0.2)';
+                    buttons[1].style.background = 'rgba(46,204,113,0.2)';
+                    traceItem.style.borderColor = 'transparent';
+                }
+            });
+            updateTraceCounters();
+        }
+
+        function updateTraceCounters() {
+            if (!window.traceData) return;
+            const badCount = window.traceData.filter(t => t.rating === 'bad').length;
+            const goodCount = window.traceData.filter(t => t.rating === 'good').length;
+            document.getElementById('selected-bad-count').textContent = badCount;
+            document.getElementById('selected-good-count').textContent = goodCount;
+
+            // Update the evolution button text
+            const evolveBtn = document.querySelector('#trace-evolution-start button');
+            if (evolveBtn && badCount > 0) {
+                evolveBtn.textContent = `Start Evolution with ${badCount} Bad Traces`;
+            } else if (evolveBtn) {
+                evolveBtn.textContent = 'Start Evolution with Traces';
+            }
+        }
+
+        // Get only bad-rated traces for evolution
+        function getBadTraces() {
+            if (!window.traceData) return [];
+            return window.traceData.filter(t => t.rating === 'bad');
+        }
+
         async function startTraceEvolution() {
+            console.log('startTraceEvolution called');
+            console.log('traceAnalysisResult:', traceAnalysisResult);
+
             if (!traceAnalysisResult || !traceAnalysisResult.samples.length) {
                 alert('Please analyze traces first');
                 return;
+            }
+
+            // Use only bad-rated traces, or all traces if none are rated
+            const badTraces = getBadTraces();
+            console.log('Bad traces:', badTraces.length);
+            const tracesToUse = badTraces.length > 0 ? badTraces : traceAnalysisResult.samples;
+            console.log('Traces to use:', tracesToUse.length);
+
+            if (badTraces.length === 0 && window.traceData && window.traceData.some(t => t.rating !== null)) {
+                // User has rated some traces but none as bad
+                if (!confirm('No traces marked as bad. Use all traces anyway?')) {
+                    return;
+                }
             }
 
             const source = document.getElementById('trace-source').value;
             const seedPrompt = document.getElementById('seed-prompt').value;
             const judgePrompt = document.getElementById('judge-prompt').value;
 
-            if (!seedPrompt.trim()) {
-                alert('Please enter a seed prompt in the Setup tab');
+            console.log('Source:', source);
+            console.log('Seed prompt length:', seedPrompt?.length);
+
+            if (!seedPrompt || !seedPrompt.trim()) {
+                alert('Please enter a seed prompt first!\n\nGo to the "Setup" tab and enter your prompt template in the "Template Content" field.');
+                switchMainTab('setup');
                 return;
             }
 
@@ -2880,7 +3334,7 @@ FEEDBACK: [detailed feedback]</textarea>
                 judge_prompt: judgePrompt,
                 trace_source: source,
                 trace_filters: getTraceFilters(),
-                trace_samples: traceAnalysisResult.samples,
+                trace_samples: tracesToUse,
                 task_model: getModelConfig('task'),
                 judge_model: getModelConfig('judge'),
                 max_iterations: parseInt(document.getElementById('max-iterations').value) || 10,
@@ -2894,7 +3348,10 @@ FEEDBACK: [detailed feedback]</textarea>
                 requestBody.langsmith_config = getLangSmithConfig();
             }
 
+            console.log('Request body:', JSON.stringify(requestBody, null, 2).substring(0, 500));
+
             try {
+                console.log('Sending request to /api/evolution/trace-driven/start');
                 const response = await fetch('/api/evolution/trace-driven/start', {
                     method: 'POST',
                     headers: {
@@ -2968,6 +3425,647 @@ FEEDBACK: [detailed feedback]</textarea>
                 console.error('Error reporting failure:', error);
                 alert('Failed to report: ' + error.message);
             }
+        }
+
+        // ===== CALIBRATION FUNCTIONS =====
+
+        let currentCalibrationId = null;
+        let currentCalibrationOriginalPrompt = null;
+        let calibrationEventSource = null;
+
+        function copyPromptFromSetup() {
+            const setupPrompt = document.getElementById('seed-prompt').value;
+            document.getElementById('calibration-system-prompt').value = setupPrompt;
+        }
+
+        function getCalibrationModelConfig(type) {
+            // type: 'assistant' or 'judge'
+            return {
+                provider: document.getElementById(`cal-${type}-provider`).value,
+                model: document.getElementById(`cal-${type}-model`).value,
+                api_key: document.getElementById(`cal-${type}-api-key`).value
+            };
+        }
+
+        function copyModelsFromMainPanel() {
+            // Copy from left panel to calibration fields
+            // Set provider first, then update model options, then set model value
+            document.getElementById('cal-assistant-provider').value = document.getElementById('task-provider').value;
+            updateCalibrationModelOptions('cal-assistant');  // Refresh model list
+            document.getElementById('cal-assistant-model').value = document.getElementById('task-model').value;
+            document.getElementById('cal-assistant-api-key').value = document.getElementById('task-api-key').value;
+
+            document.getElementById('cal-judge-provider').value = document.getElementById('judge-provider').value;
+            updateCalibrationModelOptions('cal-judge');  // Refresh model list
+            document.getElementById('cal-judge-model').value = document.getElementById('judge-model').value;
+            document.getElementById('cal-judge-api-key').value = document.getElementById('judge-api-key').value;
+
+            alert('Models copied from left panel!');
+        }
+
+        function getCalibrationConfig() {
+            const assistantModel = getCalibrationModelConfig('assistant');
+            const judgeModel = getCalibrationModelConfig('judge');
+            const customCriteria = document.getElementById('calibration-judge-criteria').value;
+
+            return {
+                domain_context: document.getElementById('calibration-domain').value,
+                custom_judge_criteria: customCriteria || null,
+                scenario_model: judgeModel,  // Use judge model for scenario generation
+                user_sim_model: assistantModel,   // Use assistant model for user simulation
+                assistant_model: assistantModel,  // Use assistant model for assistant
+                judge_model: judgeModel,
+                evolution_model: judgeModel,
+                max_iterations: parseInt(document.getElementById('calibration-iterations').value) || 5,
+                scenarios_per_iteration: parseInt(document.getElementById('calibration-scenarios').value) || 10,
+                max_turns_per_conversation: parseInt(document.getElementById('calibration-max-turns').value) || 6,
+                target_score: parseFloat(document.getElementById('calibration-target').value) || 85,
+                failure_threshold: 70,
+                memory_strategy: "sliding_window",
+                memory_window: 10
+            };
+        }
+
+        // Generate judge criteria for calibration using LLM
+        async function generateCalibrationJudge() {
+            const systemPrompt = document.getElementById('calibration-system-prompt').value || document.getElementById('seed-prompt').value;
+            const domainContext = document.getElementById('calibration-domain').value;
+            const additionalInstructions = document.getElementById('calibration-judge-instructions').value;
+
+            if (!systemPrompt.trim() && !domainContext.trim()) {
+                alert('Please enter a System Prompt or Domain Context first');
+                return;
+            }
+
+            // Use judge model config for generation
+            const judgeProvider = document.getElementById('cal-judge-provider')?.value || document.getElementById('judge-provider').value;
+            const judgeModel = document.getElementById('cal-judge-model')?.value || document.getElementById('judge-model').value;
+            const judgeApiKey = document.getElementById('cal-judge-api-key')?.value || document.getElementById('judge-api-key').value;
+
+            const modelConfig = {
+                provider: judgeProvider,
+                model: judgeModel,
+                api_key: judgeApiKey
+            };
+
+            if (!modelConfig.api_key) {
+                alert('Please enter an API key for the Judge Model');
+                return;
+            }
+
+            const btn = document.getElementById('generate-calibration-judge-btn');
+            const originalText = btn.textContent;
+            btn.textContent = 'Generating...';
+            btn.disabled = true;
+
+            // Build a combined prompt that includes system prompt and domain context
+            const combinedPrompt = `SYSTEM PROMPT:
+${systemPrompt}
+
+DOMAIN CONTEXT:
+${domainContext}
+
+This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-turn conversations, not single outputs.`;
+
+            try {
+                const response = await fetch('/api/generate-judge', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        seed_prompt: combinedPrompt,
+                        additional_instructions: additionalInstructions || 'Generate criteria for evaluating multi-turn conversations. Focus on: goal achievement, response quality, context retention, format compliance, and domain-specific requirements.',
+                        model: modelConfig
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to generate judge');
+                }
+
+                const data = await response.json();
+                document.getElementById('calibration-judge-criteria').value = data.judge_prompt;
+
+            } catch (error) {
+                console.error('Generate calibration judge error:', error);
+                alert('Failed to generate judge: ' + error.message);
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        async function startCalibration() {
+            const domainContext = document.getElementById('calibration-domain').value;
+            let systemPrompt = document.getElementById('calibration-system-prompt').value;
+
+            // Fall back to setup tab prompt if not provided
+            if (!systemPrompt.trim()) {
+                systemPrompt = document.getElementById('seed-prompt').value;
+                if (systemPrompt.trim()) {
+                    document.getElementById('calibration-system-prompt').value = systemPrompt;
+                }
+            }
+
+            if (!domainContext.trim()) {
+                alert('Please enter a domain context describing what your assistant does.');
+                return;
+            }
+
+            if (!systemPrompt.trim()) {
+                alert('Please enter a system prompt to calibrate.');
+                return;
+            }
+
+            const config = getCalibrationConfig();
+            if (!config.assistant_model.api_key) {
+                alert('Please configure the Assistant Model API key in the Model Configuration section.');
+                return;
+            }
+            if (!config.judge_model.api_key) {
+                alert('Please configure the Judge Model API key in the Model Configuration section.');
+                return;
+            }
+
+            const prompts = {
+                system_prompt: systemPrompt,
+                evolve: ["system_prompt"]
+            };
+
+            try {
+                document.getElementById('start-calibration-btn').disabled = true;
+                document.getElementById('start-calibration-btn').textContent = 'Starting...';
+
+                const response = await fetch('/api/calibration/start', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(authToken && {'Authorization': `Bearer ${authToken}`})
+                    },
+                    body: JSON.stringify({ prompts, config })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to start calibration');
+                }
+
+                const data = await response.json();
+                currentCalibrationId = data.session_id;
+
+                // Show progress UI and reset state
+                document.getElementById('calibration-progress').style.display = 'block';
+                document.getElementById('calibration-results').style.display = 'none';
+                document.getElementById('cal-diff-section').style.display = 'none';
+                document.getElementById('cal-conversations-section').style.display = 'block';  // Show conversations section
+                currentCalibrationOriginalPrompt = null;
+                document.getElementById('cal-live-conversations').innerHTML = '';  // Clear previous
+
+                // Update button to "Stop" mode
+                const btn = document.getElementById('start-calibration-btn');
+                btn.textContent = '⏹ Stop Calibration';
+                btn.onclick = stopCalibration;
+                btn.disabled = false;
+                btn.style.background = '#e74c3c';
+
+                // Connect to stream
+                connectToCalibrationStream(currentCalibrationId);
+
+            } catch (error) {
+                console.error('Error starting calibration:', error);
+                alert('Failed to start calibration: ' + error.message);
+                // Only reset button on error
+                resetCalibrationButton();
+            }
+        }
+
+        function connectToCalibrationStream(sessionId) {
+            if (calibrationEventSource) {
+                calibrationEventSource.close();
+            }
+
+            const url = `/api/calibration/${sessionId}/stream${authToken ? `?token=${authToken}` : ''}`;
+            calibrationEventSource = new EventSource(url);
+
+            const logContainer = document.getElementById('calibration-log');
+            logContainer.innerHTML = '';
+
+            calibrationEventSource.onmessage = (event) => {
+                console.log('Calibration event:', event.data);
+            };
+
+            calibrationEventSource.addEventListener('log', (event) => {
+                const data = JSON.parse(event.data);
+                const logEntry = document.createElement('div');
+                logEntry.style.marginBottom = '4px';
+                logEntry.style.borderLeft = '2px solid #00d4ff';
+                logEntry.style.paddingLeft = '8px';
+                logEntry.innerHTML = `<span style="color:#666;">[${data.iteration || 0}]</span> ${data.message}`;
+                logContainer.appendChild(logEntry);
+                logContainer.scrollTop = logContainer.scrollHeight;
+            });
+
+            calibrationEventSource.addEventListener('iteration', (event) => {
+                const data = JSON.parse(event.data);
+                updateCalibrationStats(data);
+            });
+
+            calibrationEventSource.addEventListener('status', (event) => {
+                const data = JSON.parse(event.data);
+                document.getElementById('cal-iteration').textContent = `${data.current_iteration}/${document.getElementById('calibration-iterations').value}`;
+
+                const progressPct = (data.current_iteration / parseInt(document.getElementById('calibration-iterations').value)) * 100;
+                document.getElementById('calibration-progress-bar').style.width = `${progressPct}%`;
+
+                if (data.best_score) {
+                    document.getElementById('cal-current-score').textContent = data.best_score.toFixed(1);
+                }
+                if (data.initial_score && data.best_score) {
+                    const improvement = data.best_score - data.initial_score;
+                    document.getElementById('cal-improvement').textContent = (improvement >= 0 ? '+' : '') + improvement.toFixed(1);
+                }
+            });
+
+            calibrationEventSource.addEventListener('conversation', (event) => {
+                const data = JSON.parse(event.data);
+                displayLiveConversation(data);
+            });
+
+            calibrationEventSource.addEventListener('complete', (event) => {
+                const data = JSON.parse(event.data);
+                calibrationEventSource.close();
+
+                // Reset button to Start mode
+                resetCalibrationButton();
+
+                // Update status badge
+                const badge = document.getElementById('calibration-status-badge');
+                if (data.status === 'completed') {
+                    badge.textContent = 'Completed';
+                    badge.style.background = '#2ecc71';
+                } else if (data.status === 'error') {
+                    badge.textContent = 'Error';
+                    badge.style.background = '#e74c3c';
+                } else {
+                    badge.textContent = 'Stopped';
+                    badge.style.background = '#f39c12';
+                }
+
+                // Show results
+                if (data.best_prompts && data.best_prompts.system_prompt) {
+                    document.getElementById('calibration-results').style.display = 'block';
+                    document.getElementById('calibrated-prompt-output').value = data.best_prompts.system_prompt;
+
+                    // Set scores and calculate delta
+                    const finalScore = data.best_score || 0;
+                    const initialScore = data.initial_score || 0;
+                    const delta = finalScore - initialScore;
+
+                    document.getElementById('cal-final-score').textContent = finalScore.toFixed(1);
+                    document.getElementById('cal-initial-score').textContent = initialScore.toFixed(1);
+                    document.getElementById('cal-final-delta').textContent = (delta >= 0 ? '+' : '') + delta.toFixed(1);
+
+                    // Store original prompt for diff display
+                    if (data.original_system_prompt) {
+                        currentCalibrationOriginalPrompt = data.original_system_prompt;
+                        // Render diff view
+                        const diffHtml = renderDiff(data.original_system_prompt, data.best_prompts.system_prompt);
+                        document.getElementById('cal-diff-view').innerHTML = diffHtml;
+                        document.getElementById('cal-diff-section').style.display = 'block';
+                    }
+
+                    // Load conversations
+                    loadCalibrationConversations(currentCalibrationId);
+                }
+            });
+
+            calibrationEventSource.onerror = (error) => {
+                console.error('Calibration stream error:', error);
+            };
+        }
+
+        function resetCalibrationButton() {
+            const btn = document.getElementById('start-calibration-btn');
+            btn.textContent = '🚀 Start Calibration';
+            btn.onclick = startCalibration;
+            btn.disabled = false;
+            btn.style.background = '';  // Reset to default
+        }
+
+        function displayLiveConversation(data) {
+            const container = document.getElementById('cal-live-conversations');
+            const convId = data.conversation_id || data.index;
+
+            // Create or update conversation card
+            let card = document.getElementById(`live-conv-${convId}`);
+            if (!card) {
+                card = document.createElement('div');
+                card.id = `live-conv-${convId}`;
+                card.style.cssText = 'background:rgba(0,0,0,0.3);border-radius:8px;padding:12px;margin-bottom:10px;border-left:3px solid #00d4ff;';
+                container.appendChild(card);
+            }
+
+            // Build conversation HTML
+            let html = `<div style="font-size:0.85rem;color:#00d4ff;font-weight:600;margin-bottom:8px;">
+                Conversation ${data.index || convId} ${data.score ? `<span style="color:${data.score >= 70 ? '#2ecc71' : '#e74c3c'};">(Score: ${data.score.toFixed(1)})</span>` : '<span style="color:#f39c12;">(Running...)</span>'}
+            </div>`;
+
+            if (data.scenario) {
+                html += `<div style="font-size:0.75rem;color:#888;margin-bottom:8px;">
+                    <strong>Persona:</strong> ${data.scenario.persona || 'N/A'}<br>
+                    <strong>Goal:</strong> ${data.scenario.goal || 'N/A'}
+                </div>`;
+            }
+
+            if (data.turns && data.turns.length > 0) {
+                html += `<div style="max-height:200px;overflow-y:auto;font-size:0.8rem;">`;
+                data.turns.forEach(turn => {
+                    const isUser = turn.role === 'user';
+                    html += `<div style="margin-bottom:6px;padding:6px;background:rgba(${isUser ? '0,212,255' : '46,204,113'},0.1);border-radius:4px;">
+                        <span style="color:${isUser ? '#00d4ff' : '#2ecc71'};font-weight:600;">${isUser ? '👤 User' : '🤖 Assistant'}:</span>
+                        <span style="color:#ccc;">${turn.content.substring(0, 300)}${turn.content.length > 300 ? '...' : ''}</span>
+                    </div>`;
+                });
+                html += `</div>`;
+            }
+
+            if (data.evaluation) {
+                html += `<div style="margin-top:8px;font-size:0.75rem;color:#888;">
+                    <strong>Summary:</strong> ${data.evaluation.summary || 'N/A'}
+                </div>`;
+            }
+
+            card.innerHTML = html;
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function updateCalibrationStats(data) {
+            if (data.avg_score !== undefined) {
+                document.getElementById('cal-current-score').textContent = data.avg_score.toFixed(1);
+            }
+            if (data.success_rate !== undefined) {
+                document.getElementById('cal-success-rate').textContent = (data.success_rate * 100).toFixed(0) + '%';
+            }
+
+            // Update failure patterns
+            if (data.failure_patterns && data.failure_patterns.length > 0) {
+                const container = document.getElementById('cal-failure-patterns');
+                container.innerHTML = data.failure_patterns.slice(0, 5).map(fp => `
+                    <div style="background:rgba(231,76,60,0.1);padding:8px;border-radius:6px;margin-bottom:6px;border-left:3px solid #e74c3c;">
+                        <div style="font-size:0.85rem;color:#e74c3c;font-weight:600;">${fp.pattern}</div>
+                        <div style="font-size:0.75rem;color:#888;">${fp.count} occurrence${fp.count > 1 ? 's' : ''}</div>
+                    </div>
+                `).join('');
+            }
+        }
+
+        async function stopCalibration() {
+            if (!currentCalibrationId) return;
+
+            try {
+                await fetch(`/api/calibration/${currentCalibrationId}/stop`, {
+                    method: 'POST',
+                    headers: {
+                        ...(authToken && {'Authorization': `Bearer ${authToken}`})
+                    }
+                });
+
+                if (calibrationEventSource) {
+                    calibrationEventSource.close();
+                }
+
+                // Reset button
+                resetCalibrationButton();
+
+                document.getElementById('calibration-status-badge').textContent = 'Stopped';
+                document.getElementById('calibration-status-badge').style.background = '#f39c12';
+
+            } catch (error) {
+                console.error('Error stopping calibration:', error);
+            }
+        }
+
+        async function quickEvaluate() {
+            const domainContext = document.getElementById('calibration-domain').value;
+            let systemPrompt = document.getElementById('calibration-system-prompt').value || document.getElementById('seed-prompt').value;
+
+            if (!domainContext.trim() || !systemPrompt.trim()) {
+                alert('Please enter domain context and system prompt.');
+                return;
+            }
+
+            const config = getCalibrationConfig();
+            const prompts = { system_prompt: systemPrompt };
+
+            try {
+                const btn = event.target;
+                btn.disabled = true;
+                btn.textContent = 'Evaluating...';
+
+                const response = await fetch('/api/calibration/evaluate-prompts?num_scenarios=5', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(authToken && {'Authorization': `Bearer ${authToken}`})
+                    },
+                    body: JSON.stringify({ prompts, config })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Evaluation failed');
+                }
+
+                const data = await response.json();
+
+                // Show results in an alert for now
+                let failuresText = data.failure_patterns.slice(0, 3).map(f => `- ${f.pattern} (${f.count}x)`).join('\n');
+                alert(`Quick Evaluation Results:\n\nAverage Score: ${data.avg_score.toFixed(1)}\nSuccess Rate: ${(data.success_rate * 100).toFixed(0)}%\nScenarios Run: ${data.scenarios_run}\n\nTop Failure Patterns:\n${failuresText || 'None detected'}`);
+
+                // Show conversations
+                displayQuickEvalConversations(data.conversations, data.evaluations);
+
+            } catch (error) {
+                console.error('Quick evaluate error:', error);
+                alert('Evaluation failed: ' + error.message);
+            } finally {
+                event.target.disabled = false;
+                event.target.textContent = '🔍 Quick Evaluate';
+            }
+        }
+
+        async function testSingleConversation() {
+            const domainContext = document.getElementById('calibration-domain').value;
+            let systemPrompt = document.getElementById('calibration-system-prompt').value || document.getElementById('seed-prompt').value;
+
+            if (!domainContext.trim() || !systemPrompt.trim()) {
+                alert('Please enter domain context and system prompt.');
+                return;
+            }
+
+            const config = getCalibrationConfig();
+            const prompts = { system_prompt: systemPrompt };
+
+            try {
+                const btn = event.target;
+                btn.disabled = true;
+                btn.textContent = 'Simulating...';
+
+                const response = await fetch('/api/calibration/simulate-once', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(authToken && {'Authorization': `Bearer ${authToken}`})
+                    },
+                    body: JSON.stringify({ prompts, config })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Simulation failed');
+                }
+
+                const data = await response.json();
+
+                // Display the conversation
+                displaySingleConversation(data);
+
+            } catch (error) {
+                console.error('Test conversation error:', error);
+                alert('Simulation failed: ' + error.message);
+            } finally {
+                event.target.disabled = false;
+                event.target.textContent = '💬 Test One Chat';
+            }
+        }
+
+        function displaySingleConversation(data) {
+            const container = document.getElementById('cal-conversations-section');
+            container.style.display = 'block';
+
+            const list = document.getElementById('cal-conversations-list');
+            const conv = data.conversation;
+            const evaluation = data.evaluation;
+            const scenario = data.scenario;
+
+            list.innerHTML = `
+                <div style="background:rgba(0,0,0,0.2);padding:15px;border-radius:8px;margin-bottom:10px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                        <div>
+                            <span style="color:#00d4ff;font-weight:bold;">Test Conversation</span>
+                            <span style="margin-left:10px;padding:3px 8px;border-radius:10px;font-size:0.75rem;background:${conv.user_satisfied ? '#2ecc71' : conv.user_frustrated ? '#e74c3c' : '#f39c12'};color:#fff;">
+                                ${conv.user_satisfied ? '✓ Satisfied' : conv.user_frustrated ? '✗ Frustrated' : 'Ended'}
+                            </span>
+                        </div>
+                        <span style="color:#2ecc71;font-weight:bold;">${evaluation.overall_score.toFixed(0)}/100</span>
+                    </div>
+
+                    <div style="background:rgba(255,255,255,0.05);padding:10px;border-radius:6px;margin-bottom:10px;font-size:0.8rem;">
+                        <div><strong>Persona:</strong> ${scenario.persona}</div>
+                        <div><strong>Goal:</strong> ${scenario.goal}</div>
+                    </div>
+
+                    <div style="max-height:300px;overflow-y:auto;">
+                        ${conv.turns.map(t => `
+                            <div style="margin-bottom:8px;padding:8px;border-radius:6px;background:${t.role === 'user' ? 'rgba(0,212,255,0.1)' : 'rgba(255,255,255,0.05)'};">
+                                <div style="font-size:0.75rem;color:#888;margin-bottom:4px;">${t.role === 'user' ? '👤 User' : '🤖 Assistant'}</div>
+                                <div style="font-size:0.85rem;color:#ccc;white-space:pre-wrap;">${escapeHtml(t.content)}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    ${evaluation.failure_patterns.length > 0 ? `
+                    <div style="margin-top:10px;padding:10px;background:rgba(231,76,60,0.1);border-radius:6px;">
+                        <div style="font-size:0.8rem;color:#e74c3c;font-weight:bold;margin-bottom:5px;">Failure Patterns:</div>
+                        ${evaluation.failure_patterns.map(p => `<div style="font-size:0.8rem;color:#ccc;">• ${p}</div>`).join('')}
+                    </div>
+                    ` : ''}
+
+                    <div style="margin-top:10px;font-size:0.8rem;color:#888;">
+                        <strong>Summary:</strong> ${evaluation.summary}
+                    </div>
+                </div>
+            `;
+        }
+
+        function displayQuickEvalConversations(conversations, evaluations) {
+            const container = document.getElementById('cal-conversations-section');
+            container.style.display = 'block';
+
+            const list = document.getElementById('cal-conversations-list');
+            list.innerHTML = conversations.map((conv, i) => {
+                const evaluation = evaluations[i];
+                return `
+                <div style="background:rgba(0,0,0,0.2);padding:12px;border-radius:8px;margin-bottom:10px;border-left:3px solid ${evaluation.overall_score >= 70 ? '#2ecc71' : '#e74c3c'};">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                        <span style="color:#00d4ff;font-weight:bold;font-size:0.9rem;">${conv.scenario.persona.substring(0, 40)}...</span>
+                        <span style="color:${evaluation.overall_score >= 70 ? '#2ecc71' : '#e74c3c'};font-weight:bold;">${evaluation.overall_score.toFixed(0)}</span>
+                    </div>
+                    <details>
+                        <summary style="cursor:pointer;color:#888;font-size:0.8rem;">View conversation (${conv.turns.length} turns)</summary>
+                        <div style="margin-top:8px;max-height:200px;overflow-y:auto;">
+                            ${conv.turns.map(t => `
+                                <div style="margin-bottom:6px;font-size:0.8rem;">
+                                    <span style="color:${t.role === 'user' ? '#00d4ff' : '#888'};">${t.role === 'user' ? '👤' : '🤖'}</span>
+                                    <span style="color:#ccc;">${t.content.substring(0, 150)}${t.content.length > 150 ? '...' : ''}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </details>
+                </div>
+            `}).join('');
+        }
+
+        async function loadCalibrationConversations(sessionId) {
+            try {
+                const response = await fetch(`/api/calibration/${sessionId}/iterations`, {
+                    headers: {
+                        ...(authToken && {'Authorization': `Bearer ${authToken}`})
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.iterations && data.iterations.length > 0) {
+                        // Get last iteration conversations
+                        const lastIteration = data.iterations[data.iterations.length - 1];
+                        document.getElementById('cal-initial-score').textContent = data.iterations[0]?.avg_score?.toFixed(1) || '-';
+
+                        // Fetch full conversations for the last iteration
+                        const convResponse = await fetch(`/api/calibration/${sessionId}/conversations/${lastIteration.iteration}`, {
+                            headers: {
+                                ...(authToken && {'Authorization': `Bearer ${authToken}`})
+                            }
+                        });
+
+                        if (convResponse.ok) {
+                            const convData = await convResponse.json();
+                            displayQuickEvalConversations(convData.conversations, convData.evaluations);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading conversations:', error);
+            }
+        }
+
+        function useCalibratedPrompt() {
+            const calibratedPrompt = document.getElementById('calibrated-prompt-output').value;
+            if (calibratedPrompt) {
+                document.getElementById('seed-prompt').value = calibratedPrompt;
+                document.getElementById('calibration-system-prompt').value = calibratedPrompt;
+                switchMainTab('setup');
+                alert('Calibrated prompt has been set in the Setup tab!');
+            }
+        }
+
+        function copyToClipboard(elementId) {
+            const text = document.getElementById(elementId).value;
+            navigator.clipboard.writeText(text).then(() => {
+                alert('Copied to clipboard!');
+            }).catch(err => {
+                console.error('Copy failed:', err);
+            });
         }
 
         // ===== LANGFUSE FUNCTIONS =====
@@ -3574,6 +4672,20 @@ FEEDBACK: [detailed feedback]</textarea>
                 const models = modelOptions[provider] || [];
                 modelSelect.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('');
             }
+        }
+
+        // Update model options for Calibration tab (cal-assistant, cal-judge)
+        function updateCalibrationModelOptions(type) {
+            const provider = document.getElementById(`${type}-provider`).value;
+            const modelSelect = document.getElementById(`${type}-model`);
+            const models = modelOptions[provider] || [];
+            modelSelect.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('');
+        }
+
+        // Initialize calibration model dropdowns
+        function initCalibrationModels() {
+            updateCalibrationModelOptions('cal-assistant');
+            updateCalibrationModelOptions('cal-judge');
         }
 
         // Toggle between text and image output modes
@@ -4459,6 +5571,7 @@ FEEDBACK: [detailed feedback]</textarea>
         loadConfig();
         updateModelOptions('task');
         updateModelOptions('judge');
+        initCalibrationModels();  // Initialize calibration tab model dropdowns
 
         // Set up event listener for template variable detection
         document.getElementById('seed-prompt').addEventListener('input', updateTemplateVariablesUI);

@@ -2433,26 +2433,9 @@ async def list_langsmith_runs(
     """Fetch runs (traces) from LangSmith"""
     try:
         project = project_name or config.project_name
+        print(f"[LangSmith] Fetching runs - project: {project}, api_key: ...{config.api_key[-8:] if config.api_key else 'None'}")
         if not project:
             raise HTTPException(status_code=400, detail="Project name is required")
-
-        params = {
-            "limit": limit,
-        }
-
-        # Build filter string for LangSmith
-        filters = []
-        if error_only:
-            filters.append("has(error, true)")
-        if start_time:
-            filters.append(f"gte(start_time, {start_time})")
-        if end_time:
-            filters.append(f"lte(end_time, {end_time})")
-        if run_type:
-            filters.append(f"eq(run_type, {run_type})")
-
-        if filters:
-            params["filter"] = " and ".join(filters)
 
         async with httpx.AsyncClient() as client:
             # First get project ID
@@ -2468,12 +2451,34 @@ async def list_langsmith_runs(
                 raise HTTPException(status_code=404, detail=f"Project '{project}' not found")
 
             project_id = projects[0]["id"] if isinstance(projects, list) else projects.get("id")
+            print(f"[LangSmith] Found project '{project}' with ID: {project_id}")
 
-            # Now fetch runs for this project
-            response = await client.get(
-                f"{config.base_url}/api/v1/runs",
-                headers=get_langsmith_headers(config),
-                params={"session_id": project_id, **params}
+            # Build query body for runs/query endpoint
+            query_body = {
+                "session": [project_id],
+                "limit": limit
+            }
+
+            # Add time filters directly (LangSmith query endpoint uses these as body params)
+            if start_time:
+                query_body["start_time"] = start_time
+            if end_time:
+                query_body["end_time"] = end_time
+
+            # Add error filter
+            if error_only:
+                query_body["error"] = True
+
+            # Add run type filter
+            if run_type:
+                query_body["run_type"] = run_type
+
+            print(f"[LangSmith] Query body: {query_body}")
+
+            response = await client.post(
+                f"{config.base_url}/api/v1/runs/query",
+                headers={**get_langsmith_headers(config), "Content-Type": "application/json"},
+                json=query_body
             )
             response.raise_for_status()
             return response.json()
@@ -2749,6 +2754,8 @@ async def fetch_traces(request: TraceAnalysisRequest):
         if not request.langsmith_config:
             raise HTTPException(status_code=400, detail="LangSmith config required")
 
+        print(f"[Traces] Fetching from LangSmith - project: {request.filters.prompt_name or request.langsmith_config.project_name}")
+
         try:
             # Use existing endpoint logic
             runs_response = await list_langsmith_runs(
@@ -2998,27 +3005,24 @@ async def start_trace_driven_evolution(
             })
         test_inputs.append(test_input)
 
-    # Create evolution session
-    session = EvolutionSession(
-        id=session_id,
-        config={
-            "seed_prompt": request.seed_prompt,
-            "judge_prompt": judge_prompt,
-            "test_inputs": test_inputs,
-            "task_model": request.task_model.model_dump(),
-            "judge_model": request.judge_model.model_dump(),
-            "reflection_model": request.reflection_model.model_dump() if request.reflection_model else None,
-            "max_iterations": request.max_iterations,
-            "population_size": request.population_size,
-            "trace_driven": True
-        },
-        status="pending",
-        max_iterations=request.max_iterations,
+    # Create evolution config
+    config = EvolutionConfig(
         seed_prompt=request.seed_prompt,
-        logs=["Starting trace-driven evolution..."]
+        judge_prompt=judge_prompt,
+        test_inputs=test_inputs,
+        task_model=request.task_model,
+        judge_model=request.judge_model,
+        reflection_model=request.reflection_model,
+        max_iterations=request.max_iterations,
+        population_size=request.population_size
     )
 
-    evolution_sessions[session_id] = session
+    # Create evolution session
+    session = EvolutionSession(config)
+    session.id = session_id  # Override the auto-generated ID
+    session.log("Starting trace-driven evolution...")
+
+    evolution_sessions[get_user_session_key(current_user.id if current_user else 0, session_id)] = session
 
     # Store trace evolution metadata
     trace_session = TraceEvolutionSession(
@@ -3040,18 +3044,7 @@ async def start_trace_driven_evolution(
     db.commit()
 
     # Start evolution in background thread
-    config = EvolutionConfig(
-        seed_prompt=request.seed_prompt,
-        judge_prompt=judge_prompt,
-        test_inputs=test_inputs,
-        task_model=request.task_model,
-        judge_model=request.judge_model,
-        reflection_model=request.reflection_model,
-        max_iterations=request.max_iterations,
-        population_size=request.population_size
-    )
-
-    thread = threading.Thread(target=run_gepa_evolution, args=(session_id, config))
+    thread = threading.Thread(target=run_gepa_evolution, args=(session,))
     thread.daemon = True
     thread.start()
 
@@ -3061,6 +3054,1232 @@ async def start_trace_driven_evolution(
         "status": "started",
         "trace_count": len(samples),
         "message": f"Started trace-driven evolution with {len(samples)} trace samples"
+    }
+
+
+# ===== AUTONOMOUS CONVERSATION CALIBRATION SYSTEM =====
+
+# --- Data Models ---
+
+class UserScenario(BaseModel):
+    """A generated user scenario for testing"""
+    id: str = ""
+    persona: str  # Who is the user
+    goal: str  # What they want to accomplish
+    communication_style: str  # How they communicate
+    expected_behavior: str  # What the assistant should do
+    potential_pitfalls: list[str] = []  # What could go wrong
+    difficulty: str = "medium"  # easy, medium, hard
+    initial_message: str  # First thing user says
+    follow_up_patterns: list[str] = []  # Likely follow-ups
+    tags: list[str] = []  # For categorization
+
+class ConversationTurn(BaseModel):
+    """A single turn in a conversation"""
+    role: str  # "user" or "assistant"
+    content: str
+    timestamp: Optional[str] = None
+    metadata: dict = {}
+
+class SimulatedConversation(BaseModel):
+    """A complete simulated conversation"""
+    id: str
+    scenario: UserScenario
+    turns: list[ConversationTurn]
+    final_memory: str = ""
+    user_satisfied: bool = False
+    user_frustrated: bool = False
+    turn_count: int = 0
+    ended_reason: str = ""  # "satisfied", "frustrated", "max_turns", "error"
+
+class ConversationEvaluation(BaseModel):
+    """Evaluation results for a conversation"""
+    conversation_id: str
+    scores: dict  # goal_achievement, response_quality, context_retention, etc.
+    overall_score: float
+    failure_patterns: list[str] = []
+    improvement_suggestions: list[str] = []
+    critical_turn: Optional[int] = None
+    summary: str = ""
+
+class CalibrationConfig(BaseModel):
+    """Configuration for calibration"""
+    domain_context: str  # Description of what the assistant does
+
+    # Models
+    scenario_model: ModelConfig
+    user_sim_model: ModelConfig
+    assistant_model: ModelConfig
+    judge_model: ModelConfig
+    evolution_model: Optional[ModelConfig] = None
+
+    # Custom judge criteria (domain-specific evaluation rules)
+    custom_judge_criteria: Optional[str] = None
+
+    # Calibration settings
+    max_iterations: int = 10
+    scenarios_per_iteration: int = 10
+    max_turns_per_conversation: int = 8
+    target_score: float = 85.0
+    failure_threshold: float = 70.0
+
+    # Evolution settings
+    evolution_iterations: int = 5
+    population_size: int = 5
+
+    # Memory
+    memory_strategy: str = "sliding_window"
+    memory_window: int = 10
+
+class PromptSet(BaseModel):
+    """Set of prompts to calibrate"""
+    system_prompt: str
+    tool_selection_prompt: Optional[str] = None
+    memory_prompt: Optional[str] = None
+    # Which prompts to evolve
+    evolve: list[str] = ["system_prompt"]
+
+class CalibrationIterationResult(BaseModel):
+    """Result of one calibration iteration"""
+    iteration: int
+    scenarios_run: int
+    conversations: list[SimulatedConversation] = []
+    evaluations: list[ConversationEvaluation] = []
+    avg_score: float
+    success_rate: float
+    failure_patterns: list[dict] = []
+    prompts_after: dict = {}
+
+class CalibrationSession:
+    """In-memory session for calibration"""
+    def __init__(self, config: CalibrationConfig, prompts: PromptSet):
+        self.id = str(uuid.uuid4())
+        self.config = config
+        self.prompts = prompts
+        self.current_prompts = {"system_prompt": prompts.system_prompt}
+        self.status = "pending"  # pending, running, completed, error, stopped
+        self.current_iteration = 0
+        self.iterations: list[CalibrationIterationResult] = []
+        self.logs = []
+        self.live_conversations = []  # For streaming live conversation updates
+        self.is_running = False
+        self.best_prompts = None
+        self.best_score = 0.0
+        self.initial_score = None
+
+    def log(self, message: str, data: dict = None):
+        entry = {"message": message, "data": data or {}, "iteration": self.current_iteration}
+        self.logs.append(entry)
+        print(f"[Calibration {self.id[:8]}] {message}")
+        return entry
+
+    def add_conversation(self, index: int, conversation, evaluation=None):
+        """Add a live conversation event for streaming"""
+        conv_data = {
+            "index": index,
+            "conversation_id": conversation.id,
+            "scenario": {
+                "persona": conversation.scenario.persona,
+                "goal": conversation.scenario.goal
+            },
+            "turns": [{"role": t.role, "content": t.content} for t in conversation.turns],
+            "user_satisfied": conversation.user_satisfied,
+            "user_frustrated": conversation.user_frustrated,
+            "score": evaluation.overall_score if evaluation else None,
+            "evaluation": {
+                "summary": evaluation.summary,
+                "failure_patterns": evaluation.failure_patterns
+            } if evaluation else None
+        }
+        self.live_conversations.append(conv_data)
+
+# In-memory storage for calibration sessions
+calibration_sessions = {}
+
+
+# --- Scenario Generator ---
+
+class ScenarioGenerator:
+    """Generates realistic user scenarios using LLM"""
+
+    def __init__(self, model: ModelConfig, domain_context: str):
+        self.model = model
+        self.domain_context = domain_context
+
+    async def generate_scenarios(
+        self,
+        current_prompts: dict,
+        num_scenarios: int = 10,
+        focus_areas: list[str] = None,
+        previous_failures: list[str] = None
+    ) -> list[UserScenario]:
+        """Generate diverse test scenarios"""
+
+        focus_section = ""
+        if focus_areas:
+            focus_section = f"\nFOCUS AREAS (generate more scenarios for these):\n" + "\n".join(f"- {f}" for f in focus_areas)
+
+        failure_section = ""
+        if previous_failures:
+            failure_section = f"\nPREVIOUS FAILURE PATTERNS (generate scenarios that might expose these):\n" + "\n".join(f"- {f}" for f in previous_failures[:5])
+
+        prompt = f"""You are generating test scenarios to evaluate an AI assistant.
+
+DOMAIN CONTEXT:
+{self.domain_context}
+
+ASSISTANT'S SYSTEM PROMPT:
+{current_prompts.get('system_prompt', 'Not provided')}
+{focus_section}
+{failure_section}
+
+Generate exactly {num_scenarios} diverse and realistic user scenarios.
+
+For each scenario provide a JSON object with:
+- "persona": Brief description of the user (e.g., "Senior QA engineer, technical, impatient")
+- "goal": What they want to accomplish
+- "communication_style": How they communicate (e.g., "brief and direct", "verbose and detailed", "confused")
+- "expected_behavior": What the assistant should do to succeed
+- "potential_pitfalls": Array of things that could go wrong
+- "difficulty": "easy", "medium", or "hard"
+- "initial_message": The first message the user would send (realistic, not overly formal)
+- "follow_up_patterns": Array of 2-3 likely follow-up messages
+- "tags": Array of tags like "multi-turn", "edge-case", "memory-test", "ambiguous"
+
+Make scenarios diverse:
+- Mix of easy/medium/hard
+- Different user types and communication styles
+- Single-turn and multi-turn scenarios
+- Edge cases and ambiguous requests
+- Scenarios requiring memory/context retention
+- Scenarios that might expose weaknesses
+
+Return ONLY a JSON array of scenario objects, no other text."""
+
+        try:
+            model_string = get_litellm_model_string(self.model)
+            response = await asyncio.to_thread(
+                litellm.completion,
+                model=model_string,
+                messages=[{"role": "user", "content": prompt}],
+                api_key=self.model.api_key,
+                temperature=0.8,
+                max_tokens=4000
+            )
+
+            content = response.choices[0].message.content.strip()
+
+            # Parse JSON
+            if content.startswith("```"):
+                content = content.split("```")[1]
+                if content.startswith("json"):
+                    content = content[4:]
+
+            scenarios_data = json.loads(content)
+
+            scenarios = []
+            for i, s in enumerate(scenarios_data):
+                scenarios.append(UserScenario(
+                    id=f"scenario_{uuid.uuid4().hex[:8]}",
+                    persona=s.get("persona", "Generic user"),
+                    goal=s.get("goal", ""),
+                    communication_style=s.get("communication_style", "neutral"),
+                    expected_behavior=s.get("expected_behavior", ""),
+                    potential_pitfalls=s.get("potential_pitfalls", []),
+                    difficulty=s.get("difficulty", "medium"),
+                    initial_message=s.get("initial_message", ""),
+                    follow_up_patterns=s.get("follow_up_patterns", []),
+                    tags=s.get("tags", [])
+                ))
+
+            return scenarios
+
+        except Exception as e:
+            print(f"[ScenarioGenerator] Error: {e}")
+            # Return a basic fallback scenario
+            return [UserScenario(
+                id="fallback_scenario",
+                persona="Generic user",
+                goal="Get help with a task",
+                communication_style="neutral",
+                expected_behavior="Provide helpful response",
+                potential_pitfalls=["Misunderstanding the request"],
+                difficulty="medium",
+                initial_message="Hi, I need help with something",
+                follow_up_patterns=["Can you explain more?", "Thanks"],
+                tags=["fallback"]
+            )]
+
+
+# --- Conversation Simulator ---
+
+class ConversationSimulator:
+    """Simulates conversations between LLM-as-User and LLM-as-Assistant"""
+
+    def __init__(
+        self,
+        user_model: ModelConfig,
+        assistant_model: ModelConfig,
+        prompts: dict,
+        memory_strategy: str = "sliding_window",
+        memory_window: int = 10
+    ):
+        self.user_model = user_model
+        self.assistant_model = assistant_model
+        self.prompts = prompts
+        self.memory_strategy = memory_strategy
+        self.memory_window = memory_window
+
+    async def simulate_conversation(
+        self,
+        scenario: UserScenario,
+        max_turns: int = 8
+    ) -> SimulatedConversation:
+        """Run a full conversation simulation"""
+
+        conversation_id = f"conv_{uuid.uuid4().hex[:8]}"
+        turns = []
+        memory = ""
+        user_satisfied = False
+        user_frustrated = False
+        ended_reason = "max_turns"
+
+        # Start with user's initial message
+        user_message = scenario.initial_message
+
+        for turn_num in range(max_turns):
+            # === ASSISTANT TURN ===
+            assistant_response = await self._get_assistant_response(
+                user_message, turns, memory
+            )
+
+            turns.append(ConversationTurn(role="user", content=user_message))
+            turns.append(ConversationTurn(role="assistant", content=assistant_response))
+
+            # Update memory
+            memory = self._update_memory(memory, turns)
+
+            # === USER TURN (simulate user's next message) ===
+            user_result = await self._simulate_user_turn(
+                scenario, turns, assistant_response
+            )
+
+            if user_result.get("satisfied"):
+                user_satisfied = True
+                ended_reason = "satisfied"
+                break
+            elif user_result.get("frustrated"):
+                user_frustrated = True
+                ended_reason = "frustrated"
+                break
+
+            user_message = user_result.get("message", "")
+            if not user_message:
+                ended_reason = "no_response"
+                break
+
+        return SimulatedConversation(
+            id=conversation_id,
+            scenario=scenario,
+            turns=turns,
+            final_memory=memory,
+            user_satisfied=user_satisfied,
+            user_frustrated=user_frustrated,
+            turn_count=len(turns) // 2,
+            ended_reason=ended_reason
+        )
+
+    async def _get_assistant_response(
+        self,
+        user_message: str,
+        previous_turns: list[ConversationTurn],
+        memory: str
+    ) -> str:
+        """Get response from the assistant using the prompts being calibrated"""
+
+        system_prompt = self.prompts.get("system_prompt", "You are a helpful assistant.")
+
+        # Build messages with conversation history
+        messages = [{"role": "system", "content": system_prompt}]
+
+        # Add memory context if available
+        if memory and self.memory_strategy == "summarization":
+            messages.append({
+                "role": "system",
+                "content": f"Previous conversation summary: {memory}"
+            })
+
+        # Add conversation history (sliding window)
+        history_turns = previous_turns[-self.memory_window * 2:] if self.memory_strategy == "sliding_window" else previous_turns
+        for turn in history_turns:
+            messages.append({"role": turn.role, "content": turn.content})
+
+        # Add current user message
+        messages.append({"role": "user", "content": user_message})
+
+        try:
+            model_string = get_litellm_model_string(self.assistant_model)
+            # Add timeout to prevent hanging
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    litellm.completion,
+                    model=model_string,
+                    messages=messages,
+                    api_key=self.assistant_model.api_key,
+                    temperature=0.7,
+                    max_tokens=1000,
+                    timeout=60  # 60 second timeout for litellm
+                ),
+                timeout=90  # 90 second timeout for asyncio
+            )
+            return response.choices[0].message.content.strip()
+        except asyncio.TimeoutError:
+            print(f"[ConversationSimulator] Assistant response timed out")
+            return "[Response timed out - assistant took too long]"
+        except Exception as e:
+            print(f"[ConversationSimulator] Error: {str(e)}")
+            return f"[Error generating response: {str(e)}]"
+
+    async def _simulate_user_turn(
+        self,
+        scenario: UserScenario,
+        turns: list[ConversationTurn],
+        last_assistant_response: str
+    ) -> dict:
+        """Simulate what the user would say next"""
+
+        conversation_text = "\n".join([
+            f"{'User' if t.role == 'user' else 'Assistant'}: {t.content}"
+            for t in turns
+        ])
+
+        prompt = f"""You are simulating a user in a conversation with an AI assistant.
+
+USER PROFILE:
+- Persona: {scenario.persona}
+- Goal: {scenario.goal}
+- Communication Style: {scenario.communication_style}
+
+CONVERSATION SO FAR:
+{conversation_text}
+
+Based on the assistant's last response, decide what this user would do next.
+
+Consider:
+1. Has the user's goal been achieved? If yes, they would express satisfaction.
+2. Is the user frustrated by unhelpful responses? If yes after 2+ poor responses, they might give up.
+3. Would the user ask a follow-up question or clarification?
+4. Would the user provide more information?
+
+Respond with EXACTLY ONE of these formats:
+
+If the user is satisfied and would end the conversation:
+SATISFIED: [brief thank you message]
+
+If the user is frustrated and would give up:
+FRUSTRATED: [brief frustrated message]
+
+If the user would continue the conversation:
+CONTINUE: [the user's next message, written naturally in their communication style]
+
+Remember to stay in character as this specific user persona."""
+
+        try:
+            model_string = get_litellm_model_string(self.user_model)
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    litellm.completion,
+                    model=model_string,
+                    messages=[{"role": "user", "content": prompt}],
+                    api_key=self.user_model.api_key,
+                    temperature=0.7,
+                    max_tokens=300,
+                    timeout=60
+                ),
+                timeout=90
+            )
+
+            content = response.choices[0].message.content.strip()
+
+            if content.startswith("SATISFIED:"):
+                return {"satisfied": True, "message": content[10:].strip()}
+            elif content.startswith("FRUSTRATED:"):
+                return {"frustrated": True, "message": content[11:].strip()}
+            elif content.startswith("CONTINUE:"):
+                return {"message": content[9:].strip()}
+            else:
+                # Try to use the response as-is
+                return {"message": content}
+
+        except asyncio.TimeoutError:
+            print(f"[UserSimulator] User turn timed out")
+            return {"frustrated": True, "message": "I give up."}
+        except Exception as e:
+            print(f"[UserSimulator] Error: {e}")
+            return {"frustrated": True, "message": "I give up."}
+
+    def _update_memory(self, current_memory: str, turns: list[ConversationTurn]) -> str:
+        """Update conversation memory"""
+        if self.memory_strategy == "sliding_window":
+            # Just keep recent turns, no explicit memory
+            return ""
+        elif self.memory_strategy == "full":
+            # Keep everything
+            return "\n".join([f"{t.role}: {t.content}" for t in turns])
+        else:
+            # Could implement summarization here
+            return current_memory
+
+
+# --- Conversation Judge ---
+
+class ConversationJudge:
+    """Evaluates simulated conversations"""
+
+    def __init__(self, model: ModelConfig, custom_criteria: Optional[str] = None):
+        self.model = model
+        self.custom_criteria = custom_criteria
+
+    async def evaluate(
+        self,
+        conversation: SimulatedConversation
+    ) -> ConversationEvaluation:
+        """Evaluate a conversation on multiple dimensions"""
+
+        conversation_text = "\n".join([
+            f"{'👤 User' if t.role == 'user' else '🤖 Assistant'}: {t.content}"
+            for t in conversation.turns
+        ])
+
+        # Build custom criteria section if provided
+        custom_criteria_section = ""
+        if self.custom_criteria and self.custom_criteria.strip():
+            custom_criteria_section = f"""
+DOMAIN-SPECIFIC CRITERIA (IMPORTANT - evaluate these carefully):
+{self.custom_criteria}
+
+"""
+
+        # Build domain criteria JSON field (can't use \n inside f-string expression)
+        domain_criteria_json = ',\n        "domain_criteria": <number>' if self.custom_criteria else ""
+        domain_criteria_dimension = "7. DOMAIN_CRITERIA: Did it follow the domain-specific criteria above?" if self.custom_criteria else ""
+        failure_pattern_note = " Pay special attention to violations of the domain-specific criteria." if self.custom_criteria else ""
+
+        prompt = f"""Evaluate this AI assistant conversation.
+
+SCENARIO:
+- User Persona: {conversation.scenario.persona}
+- User Goal: {conversation.scenario.goal}
+- Expected Behavior: {conversation.scenario.expected_behavior}
+- Potential Pitfalls: {', '.join(conversation.scenario.potential_pitfalls)}
+{custom_criteria_section}
+CONVERSATION:
+{conversation_text}
+
+OUTCOME: {"User satisfied" if conversation.user_satisfied else "User frustrated" if conversation.user_frustrated else "Conversation ended without clear resolution"}
+
+Evaluate on these dimensions (0-100 each):
+
+1. GOAL_ACHIEVEMENT: Did the assistant help achieve the user's goal?
+2. RESPONSE_QUALITY: Were responses accurate, helpful, and well-formatted?
+3. CONTEXT_RETENTION: Did the assistant remember and correctly use previous context?
+4. EFFICIENCY: Was the conversation efficient (minimal unnecessary turns)?
+5. ERROR_HANDLING: How well did it handle ambiguity or mistakes?
+6. TONE: Was the tone appropriate for this user?
+{domain_criteria_dimension}
+
+Also identify:
+- FAILURE_PATTERNS: Specific things that went wrong (be specific!){failure_pattern_note}
+- IMPROVEMENT_SUGGESTIONS: How could the system prompt be improved?
+- CRITICAL_TURN: Which turn number (1-indexed) was most problematic? (null if none)
+
+Return ONLY valid JSON:
+{{
+    "scores": {{
+        "goal_achievement": <number>,
+        "response_quality": <number>,
+        "context_retention": <number>,
+        "efficiency": <number>,
+        "error_handling": <number>,
+        "tone": <number>{domain_criteria_json}
+    }},
+    "overall_score": <weighted average>,
+    "failure_patterns": ["pattern1", "pattern2"],
+    "improvement_suggestions": ["suggestion1", "suggestion2"],
+    "critical_turn": <number or null>,
+    "summary": "Brief 1-2 sentence summary"
+}}"""
+
+        try:
+            model_string = get_litellm_model_string(self.model)
+            response = await asyncio.to_thread(
+                litellm.completion,
+                model=model_string,
+                messages=[{"role": "user", "content": prompt}],
+                api_key=self.model.api_key,
+                temperature=0.3,
+                max_tokens=1000
+            )
+
+            content = response.choices[0].message.content.strip()
+
+            # Parse JSON
+            if content.startswith("```"):
+                content = content.split("```")[1]
+                if content.startswith("json"):
+                    content = content[4:]
+
+            data = json.loads(content)
+
+            return ConversationEvaluation(
+                conversation_id=conversation.id,
+                scores=data.get("scores", {}),
+                overall_score=data.get("overall_score", 50.0),
+                failure_patterns=data.get("failure_patterns", []),
+                improvement_suggestions=data.get("improvement_suggestions", []),
+                critical_turn=data.get("critical_turn"),
+                summary=data.get("summary", "")
+            )
+
+        except Exception as e:
+            print(f"[ConversationJudge] Error: {e}")
+            return ConversationEvaluation(
+                conversation_id=conversation.id,
+                scores={"goal_achievement": 50, "response_quality": 50},
+                overall_score=50.0,
+                failure_patterns=["Evaluation failed"],
+                improvement_suggestions=[],
+                critical_turn=None,
+                summary=f"Evaluation error: {str(e)}"
+            )
+
+
+# --- Prompt Calibrator (Orchestrator) ---
+
+class PromptCalibrator:
+    """Orchestrates the entire calibration process"""
+
+    def __init__(self, session: CalibrationSession):
+        self.session = session
+        self.scenario_generator = ScenarioGenerator(
+            session.config.scenario_model,
+            session.config.domain_context
+        )
+        self.judge = ConversationJudge(
+            session.config.judge_model,
+            custom_criteria=session.config.custom_judge_criteria
+        )
+
+    async def run_calibration(self):
+        """Main calibration loop"""
+
+        self.session.status = "running"
+        self.session.is_running = True
+
+        try:
+            previous_failures = []
+
+            for iteration in range(self.session.config.max_iterations):
+                if not self.session.is_running:
+                    self.session.log("Calibration stopped by user")
+                    break
+
+                self.session.current_iteration = iteration + 1
+                self.session.log(f"=== Starting Iteration {iteration + 1} ===")
+
+                # STEP 1: Generate scenarios
+                self.session.log("Generating test scenarios...")
+                scenarios = await self.scenario_generator.generate_scenarios(
+                    self.session.current_prompts,
+                    num_scenarios=self.session.config.scenarios_per_iteration,
+                    focus_areas=self._get_focus_areas(),
+                    previous_failures=previous_failures
+                )
+                self.session.log(f"Generated {len(scenarios)} scenarios", {
+                    "scenarios": [s.persona for s in scenarios]
+                })
+
+                # STEP 2: Simulate conversations
+                self.session.log("Simulating conversations...")
+                simulator = ConversationSimulator(
+                    user_model=self.session.config.user_sim_model,
+                    assistant_model=self.session.config.assistant_model,
+                    prompts=self.session.current_prompts,
+                    memory_strategy=self.session.config.memory_strategy,
+                    memory_window=self.session.config.memory_window
+                )
+
+                conversations = []
+                evaluations = []
+                for i, scenario in enumerate(scenarios):
+                    self.session.log(f"Running conversation {i+1}/{len(scenarios)}: {scenario.persona[:30]}...")
+                    conv = await simulator.simulate_conversation(
+                        scenario,
+                        max_turns=self.session.config.max_turns_per_conversation
+                    )
+                    conversations.append(conv)
+
+                    # Evaluate immediately and stream
+                    eval_result = await self.judge.evaluate(conv)
+                    evaluations.append(eval_result)
+
+                    # Add to live stream
+                    self.session.add_conversation(i + 1, conv, eval_result)
+
+                # STEP 4: Analyze results
+                avg_score = sum(e.overall_score for e in evaluations) / len(evaluations)
+                success_count = sum(1 for c in conversations if c.user_satisfied)
+                success_rate = success_count / len(conversations)
+
+                # Collect failure patterns
+                failure_counts = {}
+                for eval_result in evaluations:
+                    for pattern in eval_result.failure_patterns:
+                        failure_counts[pattern] = failure_counts.get(pattern, 0) + 1
+
+                sorted_failures = sorted(failure_counts.items(), key=lambda x: -x[1])
+                failure_patterns = [{"pattern": p, "count": c} for p, c in sorted_failures]
+                previous_failures = [p for p, c in sorted_failures[:5]]
+
+                # Collect improvement suggestions
+                all_suggestions = []
+                for eval_result in evaluations:
+                    all_suggestions.extend(eval_result.improvement_suggestions)
+
+                self.session.log(f"Iteration {iteration + 1} Results", {
+                    "avg_score": round(avg_score, 1),
+                    "success_rate": f"{success_rate:.0%}",
+                    "top_failures": failure_patterns[:3]
+                })
+
+                # Store iteration result
+                iteration_result = CalibrationIterationResult(
+                    iteration=iteration + 1,
+                    scenarios_run=len(scenarios),
+                    conversations=conversations,
+                    evaluations=evaluations,
+                    avg_score=avg_score,
+                    success_rate=success_rate,
+                    failure_patterns=failure_patterns,
+                    prompts_after=self.session.current_prompts.copy()
+                )
+                self.session.iterations.append(iteration_result)
+
+                # Track best
+                if self.session.initial_score is None:
+                    self.session.initial_score = avg_score
+
+                if avg_score > self.session.best_score:
+                    self.session.best_score = avg_score
+                    self.session.best_prompts = self.session.current_prompts.copy()
+
+                # STEP 5: Check if target reached
+                if avg_score >= self.session.config.target_score:
+                    self.session.log(f"🎉 Target score {self.session.config.target_score} reached!")
+                    break
+
+                # STEP 6: Evolve prompts
+                if iteration < self.session.config.max_iterations - 1:
+                    self.session.log("Evolving prompts based on failures...")
+
+                    # Build enhanced judge from failure patterns
+                    enhanced_judge = self._build_enhanced_judge(failure_patterns, all_suggestions)
+
+                    # Get failing conversations as test cases
+                    failing_convs = [
+                        (c, e) for c, e in zip(conversations, evaluations)
+                        if e.overall_score < self.session.config.failure_threshold
+                    ]
+
+                    if failing_convs:
+                        # Create test inputs from failing conversations
+                        test_inputs = self._conversations_to_test_inputs(failing_convs)
+
+                        # Run mini GEPA evolution
+                        evolved_prompt = await self._evolve_prompt(
+                            self.session.current_prompts["system_prompt"],
+                            test_inputs,
+                            enhanced_judge
+                        )
+
+                        if evolved_prompt:
+                            self.session.current_prompts["system_prompt"] = evolved_prompt
+                            self.session.log("Prompt evolved successfully")
+                        else:
+                            self.session.log("No improvement found, continuing with current prompt")
+                    else:
+                        self.session.log("No failing conversations to learn from")
+
+            self.session.status = "completed"
+            self.session.log("Calibration completed", {
+                "initial_score": self.session.initial_score,
+                "final_score": self.session.best_score,
+                "improvement": self.session.best_score - (self.session.initial_score or 0)
+            })
+
+        except Exception as e:
+            self.session.status = "error"
+            self.session.log(f"Calibration error: {str(e)}")
+            raise
+        finally:
+            self.session.is_running = False
+
+    def _get_focus_areas(self) -> list[str]:
+        """Get areas to focus on based on previous iterations"""
+        if not self.session.iterations:
+            return []
+
+        last_iteration = self.session.iterations[-1]
+        focus = []
+
+        # Focus on top failure patterns
+        for fp in last_iteration.failure_patterns[:3]:
+            focus.append(fp["pattern"])
+
+        return focus
+
+    def _build_enhanced_judge(self, failure_patterns: list[dict], suggestions: list[str]) -> str:
+        """Build an enhanced judge prompt based on detected failures"""
+
+        patterns_text = "\n".join([
+            f"- {fp['pattern']} ({fp['count']} occurrences)"
+            for fp in failure_patterns[:5]
+        ])
+
+        suggestions_text = "\n".join([f"- {s}" for s in list(set(suggestions))[:5]])
+
+        return f"""Evaluate if this prompt output addresses the user's needs correctly.
+
+KNOWN FAILURE PATTERNS TO CHECK FOR:
+{patterns_text}
+
+SUGGESTED IMPROVEMENTS:
+{suggestions_text}
+
+Score 0-100 based on:
+- Does it avoid the failure patterns listed above?
+- Is the response helpful and accurate?
+- Is the format correct?
+
+SCORE: [number]
+FEEDBACK: [specific feedback referencing the patterns above]"""
+
+    def _conversations_to_test_inputs(self, failing_convs: list) -> list[str]:
+        """Convert failing conversations to test inputs for GEPA"""
+        test_inputs = []
+
+        for conv, eval_result in failing_convs:
+            # Use the first user message as test input
+            if conv.turns:
+                first_user_msg = conv.turns[0].content if conv.turns[0].role == "user" else ""
+                if first_user_msg:
+                    test_inputs.append(json.dumps({
+                        "user_message": first_user_msg,
+                        "scenario": conv.scenario.goal,
+                        "expected": conv.scenario.expected_behavior,
+                        "failures": eval_result.failure_patterns
+                    }))
+
+        return test_inputs[:10]  # Limit to 10 test cases
+
+    async def _evolve_prompt(
+        self,
+        current_prompt: str,
+        test_inputs: list[str],
+        judge_prompt: str
+    ) -> Optional[str]:
+        """Run a mini evolution to improve the prompt"""
+
+        if not test_inputs:
+            return None
+
+        evolution_model = self.session.config.evolution_model or self.session.config.judge_model
+
+        # Use LLM to suggest improvements based on failures
+        improvement_prompt = f"""You are improving a system prompt for an AI assistant.
+
+CURRENT PROMPT:
+{current_prompt}
+
+FAILING TEST CASES:
+{json.dumps(test_inputs[:5], indent=2)}
+
+JUDGE CRITERIA:
+{judge_prompt}
+
+Based on these failures, suggest an improved version of the system prompt that:
+1. Addresses the specific failure patterns
+2. Maintains the original intent and capabilities
+3. Is clear and well-structured
+
+Return ONLY the improved prompt, no explanations."""
+
+        try:
+            model_string = get_litellm_model_string(evolution_model)
+            response = await asyncio.to_thread(
+                litellm.completion,
+                model=model_string,
+                messages=[{"role": "user", "content": improvement_prompt}],
+                api_key=evolution_model.api_key,
+                temperature=0.5,
+                max_tokens=2000
+            )
+
+            improved = response.choices[0].message.content.strip()
+
+            # Basic validation - make sure it's not empty or too short
+            if len(improved) > 50:
+                return improved
+            return None
+
+        except Exception as e:
+            print(f"[PromptCalibrator] Evolution error: {e}")
+            return None
+
+
+# --- API Endpoints ---
+
+@app.post("/api/calibration/start")
+async def start_calibration(
+    prompts: PromptSet,
+    config: CalibrationConfig,
+    current_user: User = Depends(get_current_user_optional)
+):
+    """Start autonomous prompt calibration"""
+
+    session = CalibrationSession(config, prompts)
+    user_id = current_user.id if current_user else 0
+    session_key = get_user_session_key(user_id, session.id)
+    calibration_sessions[session_key] = session
+
+    # Run calibration in background thread
+    calibrator = PromptCalibrator(session)
+
+    def run_calibration_thread():
+        asyncio.run(calibrator.run_calibration())
+
+    thread = threading.Thread(target=run_calibration_thread)
+    thread.daemon = True
+    thread.start()
+
+    return {
+        "session_id": session.id,
+        "status": "started",
+        "message": "Calibration started"
+    }
+
+
+@app.get("/api/calibration/{session_id}/status")
+async def get_calibration_status(
+    session_id: str,
+    current_user: User = Depends(get_current_user_optional)
+):
+    """Get calibration session status"""
+
+    user_id = current_user.id if current_user else 0
+    session_key = get_user_session_key(user_id, session_id)
+    session = calibration_sessions.get(session_key)
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Calibration session not found")
+
+    return {
+        "session_id": session.id,
+        "status": session.status,
+        "current_iteration": session.current_iteration,
+        "total_iterations": session.config.max_iterations,
+        "initial_score": session.initial_score,
+        "best_score": session.best_score,
+        "current_prompts": session.current_prompts,
+        "best_prompts": session.best_prompts
+    }
+
+
+@app.get("/api/calibration/{session_id}/stream")
+async def stream_calibration(
+    session_id: str,
+    token: Optional[str] = None,  # Accept token from query param for EventSource
+    current_user: User = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    """Stream calibration progress"""
+
+    # For EventSource, auth comes via query param since headers can't be set
+    user_id = 0
+    if current_user:
+        user_id = current_user.id
+    elif token:
+        # Decode token from query param
+        payload = decode_token(token)
+        if payload and payload.get("sub"):
+            user = get_user_by_id(db, int(payload["sub"]))
+            if user:
+                user_id = user.id
+
+    session_key = get_user_session_key(user_id, session_id)
+    session = calibration_sessions.get(session_key)
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    async def event_generator():
+        last_log_index = 0
+        last_iteration = 0
+        last_conversation_index = 0
+
+        while True:
+            # Send new logs
+            while last_log_index < len(session.logs):
+                log = session.logs[last_log_index]
+                yield {
+                    "event": "log",
+                    "data": json.dumps(log)
+                }
+                last_log_index += 1
+
+            # Send new conversations
+            while last_conversation_index < len(session.live_conversations):
+                conv_data = session.live_conversations[last_conversation_index]
+                yield {
+                    "event": "conversation",
+                    "data": json.dumps(conv_data)
+                }
+                last_conversation_index += 1
+
+            # Send iteration updates
+            if session.current_iteration > last_iteration:
+                last_iteration = session.current_iteration
+                if session.iterations:
+                    latest = session.iterations[-1]
+                    yield {
+                        "event": "iteration",
+                        "data": json.dumps({
+                            "iteration": latest.iteration,
+                            "avg_score": latest.avg_score,
+                            "success_rate": latest.success_rate,
+                            "failure_patterns": latest.failure_patterns[:5],
+                            "conversations_count": len(latest.conversations)
+                        })
+                    }
+
+            # Send status
+            yield {
+                "event": "status",
+                "data": json.dumps({
+                    "status": session.status,
+                    "current_iteration": session.current_iteration,
+                    "best_score": session.best_score,
+                    "initial_score": session.initial_score
+                })
+            }
+
+            if session.status in ["completed", "error", "stopped"]:
+                yield {
+                    "event": "complete",
+                    "data": json.dumps({
+                        "status": session.status,
+                        "best_prompts": session.best_prompts,
+                        "best_score": session.best_score,
+                        "initial_score": session.initial_score,
+                        "original_system_prompt": session.prompts.system_prompt,
+                        "iterations": session.current_iteration
+                    })
+                }
+                break
+
+            await asyncio.sleep(1)
+
+    return EventSourceResponse(event_generator())
+
+
+@app.post("/api/calibration/{session_id}/stop")
+async def stop_calibration(
+    session_id: str,
+    current_user: User = Depends(get_current_user_optional)
+):
+    """Stop a running calibration"""
+
+    user_id = current_user.id if current_user else 0
+    session_key = get_user_session_key(user_id, session_id)
+    session = calibration_sessions.get(session_key)
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session.is_running = False
+    session.status = "stopped"
+
+    return {"status": "stopped", "best_prompts": session.best_prompts}
+
+
+@app.post("/api/calibration/simulate-once")
+async def simulate_single_conversation(
+    prompts: PromptSet,
+    config: CalibrationConfig,
+    scenario: Optional[UserScenario] = None
+):
+    """Run a single conversation simulation for testing"""
+
+    # Generate scenario if not provided
+    if not scenario:
+        generator = ScenarioGenerator(config.scenario_model, config.domain_context)
+        scenarios = await generator.generate_scenarios(
+            {"system_prompt": prompts.system_prompt},
+            num_scenarios=1
+        )
+        scenario = scenarios[0] if scenarios else None
+
+    if not scenario:
+        raise HTTPException(status_code=400, detail="Could not generate scenario")
+
+    # Run simulation
+    simulator = ConversationSimulator(
+        user_model=config.user_sim_model,
+        assistant_model=config.assistant_model,
+        prompts={"system_prompt": prompts.system_prompt},
+        memory_strategy=config.memory_strategy,
+        memory_window=config.memory_window
+    )
+
+    conversation = await simulator.simulate_conversation(
+        scenario,
+        max_turns=config.max_turns_per_conversation
+    )
+
+    # Evaluate
+    judge = ConversationJudge(config.judge_model, custom_criteria=config.custom_judge_criteria)
+    evaluation = await judge.evaluate(conversation)
+
+    return {
+        "scenario": scenario.model_dump(),
+        "conversation": conversation.model_dump(),
+        "evaluation": evaluation.model_dump()
+    }
+
+
+@app.post("/api/calibration/evaluate-prompts")
+async def quick_evaluate_prompts(
+    prompts: PromptSet,
+    config: CalibrationConfig,
+    num_scenarios: int = 5
+):
+    """Quick evaluation of prompts without full calibration"""
+
+    # Generate scenarios
+    generator = ScenarioGenerator(config.scenario_model, config.domain_context)
+    scenarios = await generator.generate_scenarios(
+        {"system_prompt": prompts.system_prompt},
+        num_scenarios=num_scenarios
+    )
+
+    # Run simulations
+    simulator = ConversationSimulator(
+        user_model=config.user_sim_model,
+        assistant_model=config.assistant_model,
+        prompts={"system_prompt": prompts.system_prompt}
+    )
+
+    conversations = []
+    for scenario in scenarios:
+        conv = await simulator.simulate_conversation(scenario)
+        conversations.append(conv)
+
+    # Evaluate
+    judge = ConversationJudge(config.judge_model, custom_criteria=config.custom_judge_criteria)
+    evaluations = []
+    for conv in conversations:
+        eval_result = await judge.evaluate(conv)
+        evaluations.append(eval_result)
+
+    # Aggregate results
+    avg_score = sum(e.overall_score for e in evaluations) / len(evaluations)
+    success_rate = sum(1 for c in conversations if c.user_satisfied) / len(conversations)
+
+    all_failures = []
+    for e in evaluations:
+        all_failures.extend(e.failure_patterns)
+
+    failure_counts = {}
+    for f in all_failures:
+        failure_counts[f] = failure_counts.get(f, 0) + 1
+
+    return {
+        "avg_score": avg_score,
+        "success_rate": success_rate,
+        "scenarios_run": len(scenarios),
+        "failure_patterns": [
+            {"pattern": p, "count": c}
+            for p, c in sorted(failure_counts.items(), key=lambda x: -x[1])
+        ],
+        "conversations": [c.model_dump() for c in conversations],
+        "evaluations": [e.model_dump() for e in evaluations]
+    }
+
+
+@app.get("/api/calibration/{session_id}/iterations")
+async def get_calibration_iterations(
+    session_id: str,
+    current_user: User = Depends(get_current_user_optional)
+):
+    """Get all iteration results for a calibration session"""
+
+    user_id = current_user.id if current_user else 0
+    session_key = get_user_session_key(user_id, session_id)
+    session = calibration_sessions.get(session_key)
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    return {
+        "session_id": session.id,
+        "iterations": [
+            {
+                "iteration": it.iteration,
+                "avg_score": it.avg_score,
+                "success_rate": it.success_rate,
+                "failure_patterns": it.failure_patterns,
+                "conversations_count": len(it.conversations),
+                "prompts": it.prompts_after
+            }
+            for it in session.iterations
+        ]
+    }
+
+
+@app.get("/api/calibration/{session_id}/conversations/{iteration}")
+async def get_iteration_conversations(
+    session_id: str,
+    iteration: int,
+    current_user: User = Depends(get_current_user_optional)
+):
+    """Get conversations from a specific iteration"""
+
+    user_id = current_user.id if current_user else 0
+    session_key = get_user_session_key(user_id, session_id)
+    session = calibration_sessions.get(session_key)
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if iteration < 1 or iteration > len(session.iterations):
+        raise HTTPException(status_code=404, detail="Iteration not found")
+
+    it = session.iterations[iteration - 1]
+
+    return {
+        "iteration": iteration,
+        "conversations": [
+            {
+                "id": c.id,
+                "scenario": c.scenario.model_dump(),
+                "turns": [t.model_dump() for t in c.turns],
+                "user_satisfied": c.user_satisfied,
+                "user_frustrated": c.user_frustrated,
+                "ended_reason": c.ended_reason
+            }
+            for c in it.conversations
+        ],
+        "evaluations": [e.model_dump() for e in it.evaluations]
     }
 
 
