@@ -3725,21 +3725,14 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
                     document.getElementById('cal-initial-score').textContent = initialScore.toFixed(1);
                     document.getElementById('cal-final-delta').textContent = (delta >= 0 ? '+' : '') + delta.toFixed(1);
 
-                    // Store original prompt for diff display
-                    const originalPrompt = data.original_system_prompt || document.getElementById('calibration-system-prompt').value || document.getElementById('seed-prompt').value;
-                    const evolvedPrompt = data.best_prompts.system_prompt;
+                    // Show diff between original and evolved prompt
+                    console.log('[Calibration] Complete data:', JSON.stringify(data, null, 2));
 
-                    console.log('[Calibration] Original prompt length:', originalPrompt?.length);
-                    console.log('[Calibration] Evolved prompt length:', evolvedPrompt?.length);
-
-                    if (originalPrompt && evolvedPrompt) {
-                        currentCalibrationOriginalPrompt = originalPrompt;
-                        // Render diff view
-                        const diffHtml = renderDiff(originalPrompt, evolvedPrompt);
-                        document.getElementById('cal-diff-view').innerHTML = diffHtml || '<span style="color:#888;">No changes detected</span>';
+                    if (data.original_system_prompt) {
+                        currentCalibrationOriginalPrompt = data.original_system_prompt;
+                        const diffHtml = renderDiff(data.original_system_prompt, data.best_prompts.system_prompt);
+                        document.getElementById('cal-diff-view').innerHTML = diffHtml;
                         document.getElementById('cal-diff-section').style.display = 'block';
-                    } else {
-                        console.log('[Calibration] Missing prompts for diff:', { originalPrompt: !!originalPrompt, evolvedPrompt: !!evolvedPrompt });
                     }
 
                     // Load conversations
