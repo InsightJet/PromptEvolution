@@ -5409,7 +5409,22 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
                 imageModel: document.getElementById('image-model').value,
                 imageApiKey: document.getElementById('image-api-key').value,
                 outputType: getOutputType(),
-                sampleDataInstructions: document.getElementById('sample-data-instructions').value
+                sampleDataInstructions: document.getElementById('sample-data-instructions').value,
+                // Calibration/Chat Simulation config
+                calibrationDomain: document.getElementById('calibration-domain').value,
+                calibrationSystemPrompt: document.getElementById('calibration-system-prompt').value,
+                calAssistantProvider: document.getElementById('cal-assistant-provider').value,
+                calAssistantModel: document.getElementById('cal-assistant-model').value,
+                calAssistantApiKey: document.getElementById('cal-assistant-api-key').value,
+                calJudgeProvider: document.getElementById('cal-judge-provider').value,
+                calJudgeModel: document.getElementById('cal-judge-model').value,
+                calJudgeApiKey: document.getElementById('cal-judge-api-key').value,
+                calibrationJudgeInstructions: document.getElementById('calibration-judge-instructions').value,
+                calibrationJudgeCriteria: document.getElementById('calibration-judge-criteria').value,
+                calibrationScenarios: document.getElementById('calibration-scenarios').value,
+                calibrationIterations: document.getElementById('calibration-iterations').value,
+                calibrationMaxTurns: document.getElementById('calibration-max-turns').value,
+                calibrationTarget: document.getElementById('calibration-target').value
             };
 
             // Save to localStorage always (for offline/backup)
@@ -5522,6 +5537,31 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
                         toggleOutputType(config.outputType);
                     }
                 }
+
+                // Restore calibration/chat simulation config
+                if (config.calibrationDomain) document.getElementById('calibration-domain').value = config.calibrationDomain;
+                if (config.calibrationSystemPrompt) document.getElementById('calibration-system-prompt').value = config.calibrationSystemPrompt;
+
+                if (config.calAssistantProvider) {
+                    document.getElementById('cal-assistant-provider').value = config.calAssistantProvider;
+                    updateCalibrationModelOptions('cal-assistant');
+                }
+                if (config.calAssistantModel) document.getElementById('cal-assistant-model').value = config.calAssistantModel;
+                if (config.calAssistantApiKey) document.getElementById('cal-assistant-api-key').value = config.calAssistantApiKey;
+
+                if (config.calJudgeProvider) {
+                    document.getElementById('cal-judge-provider').value = config.calJudgeProvider;
+                    updateCalibrationModelOptions('cal-judge');
+                }
+                if (config.calJudgeModel) document.getElementById('cal-judge-model').value = config.calJudgeModel;
+                if (config.calJudgeApiKey) document.getElementById('cal-judge-api-key').value = config.calJudgeApiKey;
+
+                if (config.calibrationJudgeInstructions) document.getElementById('calibration-judge-instructions').value = config.calibrationJudgeInstructions;
+                if (config.calibrationJudgeCriteria) document.getElementById('calibration-judge-criteria').value = config.calibrationJudgeCriteria;
+                if (config.calibrationScenarios) document.getElementById('calibration-scenarios').value = config.calibrationScenarios;
+                if (config.calibrationIterations) document.getElementById('calibration-iterations').value = config.calibrationIterations;
+                if (config.calibrationMaxTurns) document.getElementById('calibration-max-turns').value = config.calibrationMaxTurns;
+                if (config.calibrationTarget) document.getElementById('calibration-target').value = config.calibrationTarget;
 
             } catch (e) {
                 console.error('Failed to apply config:', e);
