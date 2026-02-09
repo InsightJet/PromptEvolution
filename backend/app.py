@@ -973,6 +973,7 @@ def generate_image_sync(model_config: ModelConfig, prompt: str, user_input: str 
         }
 
     # Retry logic for rate limiting
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
     max_retries = 3
     timeout_seconds = 180
 
@@ -981,36 +982,14 @@ def generate_image_sync(model_config: ModelConfig, prompt: str, user_input: str 
             print(f"[Image Gen] Starting generation (attempt {attempt + 1}/{max_retries})...")
             start_time = time.time()
 
-            # Use predictions API for timeout control
-            create_kwargs = {"input": model_input}
-            if ":" in model_id:
-                # Versioned model: "owner/name:version_hash"
-                create_kwargs["version"] = model_id.split(":")[1]
-            else:
-                # Latest model: "owner/name"
-                create_kwargs["model"] = model_id
-
-            prediction = replicate.predictions.create(**create_kwargs)
-            print(f"[Image Gen] Prediction created: {prediction.id}, status: {prediction.status}")
-
-            # Poll with timeout
-            while prediction.status not in ("succeeded", "failed", "canceled"):
-                elapsed = time.time() - start_time
-                if elapsed > timeout_seconds:
-                    try:
-                        prediction.cancel()
-                    except Exception:
-                        pass
-                    raise TimeoutError(f"Image generation timed out after {timeout_seconds}s")
-                time.sleep(2)
-                prediction.reload()
-                if int(elapsed) % 10 == 0 and int(elapsed) > 0:
-                    print(f"[Image Gen] Waiting... {elapsed:.0f}s elapsed, status: {prediction.status}")
-
-            if prediction.status == "failed":
-                raise Exception(f"Image generation failed: {prediction.error}")
-
-            output = prediction.output
+            # Run with timeout using thread pool
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(replicate.run, model_id, input=model_input)
+                try:
+                    output = future.result(timeout=timeout_seconds)
+                except FutureTimeout:
+                    print(f"[Image Gen] Timed out after {timeout_seconds}s")
+                    raise Exception(f"Image generation timed out after {timeout_seconds}s")
 
             # Handle different output formats
             if isinstance(output, list):
@@ -1029,10 +1008,6 @@ def generate_image_sync(model_config: ModelConfig, prompt: str, user_input: str 
                 "model": model_config.model,
                 "revised_prompt": None
             }
-
-        except TimeoutError as e:
-            print(f"[Image Gen] Timeout: {str(e)}")
-            raise
 
         except Exception as e:
             error_str = str(e)
