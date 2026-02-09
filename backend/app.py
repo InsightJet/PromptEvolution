@@ -974,13 +974,43 @@ def generate_image_sync(model_config: ModelConfig, prompt: str, user_input: str 
 
     # Retry logic for rate limiting
     max_retries = 3
+    timeout_seconds = 180
+
     for attempt in range(max_retries):
         try:
-            # Run the model
-            output = replicate.run(
-                model_id,
-                input=model_input
-            )
+            print(f"[Image Gen] Starting generation (attempt {attempt + 1}/{max_retries})...")
+            start_time = time.time()
+
+            # Use predictions API for timeout control
+            create_kwargs = {"input": model_input}
+            if ":" in model_id:
+                # Versioned model: "owner/name:version_hash"
+                create_kwargs["version"] = model_id.split(":")[1]
+            else:
+                # Latest model: "owner/name"
+                create_kwargs["model"] = model_id
+
+            prediction = replicate.predictions.create(**create_kwargs)
+            print(f"[Image Gen] Prediction created: {prediction.id}, status: {prediction.status}")
+
+            # Poll with timeout
+            while prediction.status not in ("succeeded", "failed", "canceled"):
+                elapsed = time.time() - start_time
+                if elapsed > timeout_seconds:
+                    try:
+                        prediction.cancel()
+                    except Exception:
+                        pass
+                    raise TimeoutError(f"Image generation timed out after {timeout_seconds}s")
+                time.sleep(2)
+                prediction.reload()
+                if int(elapsed) % 10 == 0 and int(elapsed) > 0:
+                    print(f"[Image Gen] Waiting... {elapsed:.0f}s elapsed, status: {prediction.status}")
+
+            if prediction.status == "failed":
+                raise Exception(f"Image generation failed: {prediction.error}")
+
+            output = prediction.output
 
             # Handle different output formats
             if isinstance(output, list):
@@ -990,20 +1020,24 @@ def generate_image_sync(model_config: ModelConfig, prompt: str, user_input: str 
             else:
                 image_url = str(output)
 
-            print(f"[Image Gen] Generated image URL: {image_url[:80]}...")
+            elapsed = time.time() - start_time
+            print(f"[Image Gen] Generated in {elapsed:.1f}s - URL: {image_url[:80]}...")
 
             return {
                 "url": image_url,
                 "prompt": final_prompt,
                 "model": model_config.model,
-                "revised_prompt": None  # Replicate doesn't revise prompts
+                "revised_prompt": None
             }
+
+        except TimeoutError as e:
+            print(f"[Image Gen] Timeout: {str(e)}")
+            raise
 
         except Exception as e:
             error_str = str(e)
-            # Check for rate limiting (429)
             if "429" in error_str or "throttled" in error_str.lower() or "rate limit" in error_str.lower():
-                wait_time = 10 * (attempt + 1)  # Progressive backoff: 10s, 20s, 30s
+                wait_time = 10 * (attempt + 1)
                 print(f"[Image Gen] Rate limited. Waiting {wait_time}s before retry {attempt + 1}/{max_retries}...")
                 time.sleep(wait_time)
                 continue
@@ -1011,7 +1045,6 @@ def generate_image_sync(model_config: ModelConfig, prompt: str, user_input: str 
                 print(f"[Image Gen] Error: {error_str}")
                 raise
 
-    # If all retries failed
     raise Exception(f"Failed to generate image after {max_retries} retries due to rate limiting")
 
 
@@ -1052,6 +1085,7 @@ def call_vision_llm_sync(model_config: ModelConfig, prompt: str, image_url: str 
                 {"role": "user", "content": content}
             ],
             api_key=model_config.api_key,
+            timeout=90,
         )
 
         if response and response.choices and len(response.choices) > 0:
