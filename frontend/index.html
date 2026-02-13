@@ -2867,12 +2867,15 @@ FEEDBACK: [detailed feedback]</textarea>
             // Hide right panel for tabs that have their own results display
             const rightPanel = document.getElementById('right-panel');
             const resizeHandle = document.getElementById('resize-handle');
+            const centerPanel = document.querySelector('.center-panel');
             if (tabName === 'calibration' || tabName === 'compare') {
                 rightPanel.style.display = 'none';
                 resizeHandle.style.display = 'none';
+                centerPanel.style.gridColumn = '2 / -1';
             } else {
                 rightPanel.style.display = 'flex';
                 resizeHandle.style.display = 'block';
+                centerPanel.style.gridColumn = '2';
             }
         }
 
