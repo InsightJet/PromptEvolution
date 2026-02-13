@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GEPA Prompt Evolution + Langfuse</title>
+    <title>Prompt Evolution</title>
     <style>
         *, *::before, *::after {
             margin: 0;
@@ -819,7 +819,7 @@
 <body>
     <div class="app-container">
         <header style="display:flex;justify-content:space-between;align-items:center;">
-            <h1>GEPA Prompt Evolution + Langfuse</h1>
+            <h1>Prompt Evolution</h1>
             <div id="auth-section" style="display:flex;gap:10px;align-items:center;">
                 <!-- Shows when not logged in -->
                 <div id="auth-buttons" style="display:none;">
@@ -956,7 +956,7 @@
 
         <!-- Login Required Overlay -->
         <div id="login-required-overlay" style="position:fixed;top:0;left:0;width:100%;height:100%;background:linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);z-index:999;display:flex;flex-direction:column;align-items:center;justify-content:center;">
-            <h1 style="font-size:2rem;margin-bottom:10px;background:linear-gradient(90deg, #00d4ff, #7b2cbf);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">GEPA Prompt Evolution</h1>
+            <h1 style="font-size:2rem;margin-bottom:10px;background:linear-gradient(90deg, #00d4ff, #7b2cbf);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">Prompt Evolution</h1>
             <p style="color:#888;margin-bottom:30px;">Please login or register to continue</p>
             <div style="display:flex;gap:15px;">
                 <button class="btn btn-primary" onclick="showLoginModal()" style="padding:12px 30px;font-size:1rem;">Login</button>
@@ -1405,7 +1405,7 @@ FEEDBACK: [detailed feedback]</textarea>
                     <!-- System Prompt -->
                     <div class="form-group">
                         <label>System Prompt to Calibrate</label>
-                        <textarea id="calibration-system-prompt" style="min-height:120px;" placeholder="Enter your system prompt here, or it will use the one from the Setup tab..."></textarea>
+                        <textarea id="calibration-system-prompt" style="min-height:240px;" placeholder="Enter your system prompt here, or it will use the one from the Setup tab..."></textarea>
                         <button class="btn btn-secondary btn-sm" onclick="copyPromptFromSetup()" style="margin-top:5px;">
                             ↩ Copy from Setup Tab
                         </button>
@@ -1487,7 +1487,7 @@ FEEDBACK: [detailed feedback]</textarea>
                             <label style="margin: 0;">Custom Evaluation Criteria <span style="color:#888;font-weight:normal;">(domain-specific rules)</span></label>
                             <button class="btn btn-secondary btn-sm" id="generate-calibration-judge-btn" onclick="generateCalibrationJudge()">Generate Judge</button>
                         </div>
-                        <textarea id="calibration-judge-criteria" style="min-height:120px;" placeholder="Examples of criteria to add:
+                        <textarea id="calibration-judge-criteria" style="min-height:240px;" placeholder="Examples of criteria to add:
 
 - When user asks for a screenshot, assistant MUST return [[screenshot:state_X]] format, NOT a text description
 - Assistant should reference test case IDs in format [[tc:ID:name]]
@@ -1809,7 +1809,7 @@ FEEDBACK: [detailed feedback]</textarea>
                         </div>
                         <div class="form-group">
                             <label>Commit Message</label>
-                            <input type="text" id="save-commit-message" placeholder="Optimized with GEPA">
+                            <input type="text" id="save-commit-message" placeholder="Optimized with Prompt Evolution">
                         </div>
                         <button class="btn btn-success" onclick="saveToLangfuse()">Save to Langfuse</button>
                     </div>
@@ -1866,7 +1866,7 @@ FEEDBACK: [detailed feedback]</textarea>
                         </div>
                         <div class="form-group">
                             <label>Commit Message</label>
-                            <input type="text" id="compare-save-commit-message" placeholder="Optimized with GEPA - improved score by X points">
+                            <input type="text" id="compare-save-commit-message" placeholder="Optimized with Prompt Evolution - improved score by X points">
                         </div>
                         <button class="btn btn-success" onclick="saveFromCompareTab()">Save to Langfuse</button>
                     </div>
@@ -4261,7 +4261,7 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
                         name: name,
                         prompt: promptContent,
                         labels: [],
-                        commit_message: 'Created/updated via GEPA UI'
+                        commit_message: 'Created/updated via Prompt Evolution'
                     })
                 });
 
@@ -4311,7 +4311,7 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
                         name: name,
                         prompt: promptContent,
                         labels: labels,
-                        commit_message: commitMessage || 'Optimized with GEPA'
+                        commit_message: commitMessage || 'Optimized with Prompt Evolution'
                     })
                 });
 
@@ -4352,7 +4352,7 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
             // Auto-generate commit message with improvement info if not provided
             if (!commitMessage && currentInitialScore && currentBestScore) {
                 const improvement = (currentBestScore - currentInitialScore).toFixed(1);
-                commitMessage = `Optimized with GEPA - score improved from ${currentInitialScore.toFixed(1)} to ${currentBestScore.toFixed(1)} (+${improvement} points)`;
+                commitMessage = `Optimized with Prompt Evolution - score improved from ${currentInitialScore.toFixed(1)} to ${currentBestScore.toFixed(1)} (+${improvement} points)`;
             }
 
             try {
@@ -4364,7 +4364,7 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
                         name: name,
                         prompt: promptContent,
                         labels: labels,
-                        commit_message: commitMessage || 'Optimized with GEPA'
+                        commit_message: commitMessage || 'Optimized with Prompt Evolution'
                     })
                 });
 
@@ -4405,7 +4405,7 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
             // Auto-generate commit message with improvement info if not provided
             if (!commitMessage && currentInitialScore && currentBestScore) {
                 const improvement = (currentBestScore - currentInitialScore).toFixed(1);
-                commitMessage = `Optimized with GEPA - score improved from ${currentInitialScore.toFixed(1)} to ${currentBestScore.toFixed(1)} (+${improvement} points)`;
+                commitMessage = `Optimized with Prompt Evolution - score improved from ${currentInitialScore.toFixed(1)} to ${currentBestScore.toFixed(1)} (+${improvement} points)`;
             }
 
             try {
@@ -4417,7 +4417,7 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
                         name: name,
                         prompt: promptContent,
                         labels: labels,
-                        commit_message: commitMessage || 'Optimized with GEPA'
+                        commit_message: commitMessage || 'Optimized with Prompt Evolution'
                     })
                 });
 
@@ -4480,7 +4480,7 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
             const name = prompt(`Save candidate (score: ${candidate.score.toFixed(1)}) as:`, suggestedName);
             if (!name) return;
 
-            await savePromptToLangfuseAPI(name, candidate.prompt, ['optimized', 'gepa'], `Optimized with GEPA (score: ${candidate.score.toFixed(1)})`);
+            await savePromptToLangfuseAPI(name, candidate.prompt, ['optimized', 'gepa'], `Optimized with Prompt Evolution (score: ${candidate.score.toFixed(1)})`);
         }
 
         async function savePromptToLangfuseAPI(name, promptContent, labels, commitMessage) {
