@@ -1165,7 +1165,6 @@
             <div class="tabs" id="main-tabs" style="margin-bottom:15px;">
                 <button class="tab-btn active" onclick="switchMainTab('setup')">Prompt Evolution</button>
                 <button class="tab-btn" onclick="switchMainTab('calibration')">Conversation Evolution</button>
-                <button class="tab-btn" onclick="switchMainTab('compare')">Compare Results</button>
             </div>
 
             <!-- Setup Tab -->
@@ -1474,10 +1473,80 @@ FEEDBACK: [detailed feedback]</textarea>
                 </div>
             </div>
 
+            <!-- Results Overlay (shown after evolution completes) -->
+            <div class="evolution-overlay" id="pe-results-overlay">
+                <div class="card">
+                    <h3 style="color:#2ecc71;margin-bottom:15px;">Evolution Complete</h3>
+                    <div class="score-banner" style="margin-bottom:15px;">
+                        <div style="text-align:center;">
+                            <div style="font-size:0.75rem;color:#888;margin-bottom:4px;">Original</div>
+                            <div style="font-size:2rem;font-weight:700;" id="pe-results-initial">—</div>
+                        </div>
+                        <div style="font-size:1.5rem;color:#888;">→</div>
+                        <div style="text-align:center;">
+                            <div style="font-size:0.75rem;color:#888;margin-bottom:4px;">Evolved</div>
+                            <div style="font-size:2rem;font-weight:700;color:#2ecc71;" id="pe-results-best">—</div>
+                        </div>
+                        <div class="improvement-chip" id="pe-results-delta" style="display:none;">+0</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="diff-legend" style="margin-bottom:15px;">
+                        <span><div class="legend-box removed"></div> Removed</span>
+                        <span><div class="legend-box added"></div> Added</span>
+                    </div>
+                    <h3 style="color:#00d4ff;margin-bottom:15px;">What Changed</h3>
+                    <div class="diff-view" id="pe-results-diff" style="max-height:350px;">
+                        <span style="color:#888;">No changes to display</span>
+                    </div>
+                </div>
+
+                <div class="card" id="template-warning-card" style="display:none;background:rgba(231,76,60,0.1);border:1px solid rgba(231,76,60,0.3);">
+                    <h4 style="color:#e74c3c;margin-bottom:10px;">Template Variables Not Restored</h4>
+                    <p style="font-size:0.85rem;color:#ccc;margin-bottom:10px;">
+                        The evolved prompt may not contain all template variables (like <code style="color:#00d4ff;">{{variableName}}</code>).
+                    </p>
+                    <p style="font-size:0.8rem;color:#888;">
+                        Original: <span id="original-var-count">0</span> variables.
+                        Evolved: <span id="evolved-var-count">0</span> variables.
+                    </p>
+                </div>
+
+                <div class="card">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
+                        <h3 style="color:#2ecc71;margin:0;">Save Evolved Prompt</h3>
+                        <button class="btn btn-secondary btn-sm" onclick="editEvolvedPrompt()">Edit Prompt</button>
+                    </div>
+                    <div class="form-group" id="evolved-prompt-edit-section" style="display:none;">
+                        <label>Evolved Prompt (editable)</label>
+                        <textarea id="evolved-prompt-editable" style="min-height:150px;font-family:Monaco,Menlo,monospace;font-size:0.85rem;"></textarea>
+                        <button class="btn btn-primary btn-sm" onclick="saveEditedPrompt()" style="margin-top:8px;">Apply Changes</button>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;">
+                        <div class="form-group">
+                            <label>Save as (prompt name)</label>
+                            <input type="text" id="main-save-prompt-name" placeholder="my-optimized-prompt">
+                        </div>
+                        <div class="form-group">
+                            <label>Labels</label>
+                            <input type="text" id="main-save-prompt-labels" value="optimized" placeholder="optimized, production">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Commit Message</label>
+                        <input type="text" id="main-save-commit-message" placeholder="Auto-generated with improvement details if left empty">
+                    </div>
+                    <button class="btn btn-success" onclick="saveFromMainCompareTab()" style="width:100%;">Save to Langfuse</button>
+                </div>
+
+                <div style="text-align:center;margin-top:15px;">
+                    <button class="btn btn-secondary" onclick="resetPeWizard()">Back to Setup</button>
+                </div>
+            </div>
+
             </div><!-- pe-container -->
             </div><!-- End Prompt Evolution Tab -->
-
-            <!-- Compare Results Tab -->
 
             <!-- Conversation Evolution Tab -->
             <div class="main-tab-content" id="main-tab-calibration" style="display:none;">
@@ -1758,89 +1827,6 @@ FEEDBACK: [detailed feedback]</textarea>
             </div><!-- ce-container -->
             </div><!-- End Conversation Evolution Tab -->
 
-            <div class="main-tab-content" id="main-tab-compare" style="display:none;">
-                <div class="card">
-                    <div class="improvement-banner" id="main-improvement-banner">
-                        <span style="font-size:1rem;">Score improved by </span>
-                        <span class="delta" id="main-compare-delta" style="font-size:1.5rem;">+0</span>
-                        <span style="font-size:1rem;"> points</span>
-                        <div style="font-size:0.9rem;color:#888;margin-top:6px;">
-                            <span id="main-compare-initial">-</span> → <span id="main-compare-best">-</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="diff-legend" style="margin-bottom:15px;">
-                        <span><div class="legend-box removed"></div> Removed from original</span>
-                        <span><div class="legend-box added"></div> Added in evolved</span>
-                    </div>
-
-                    <h3 style="color:#00d4ff;margin-bottom:15px;">What Changed</h3>
-                    <div class="diff-view" id="main-diff-view" style="max-height:350px;">
-                        <span style="color:#888;">Run an evolution to see the comparison...</span>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <h3 style="color:#888;margin-bottom:15px;">Side-by-Side View</h3>
-                    <div class="comparison-container">
-                        <div class="comparison-panel">
-                            <div class="comparison-header original">
-                                <span>Original Seed Prompt</span>
-                                <span class="score-badge original" id="main-original-score-badge">Score: -</span>
-                            </div>
-                            <div class="comparison-content" id="main-original-prompt-content" style="max-height:250px;">-</div>
-                        </div>
-                        <div class="comparison-panel">
-                            <div class="comparison-header evolved">
-                                <span>Evolved Best Prompt</span>
-                                <span class="score-badge evolved" id="main-evolved-score-badge">Score: -</span>
-                            </div>
-                            <div class="comparison-content" id="main-evolved-prompt-content" style="max-height:250px;">-</div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="card" id="template-warning-card" style="display:none;background:rgba(231,76,60,0.1);border:1px solid rgba(231,76,60,0.3);">
-                    <h4 style="color:#e74c3c;margin-bottom:10px;">Template Variables Not Restored</h4>
-                    <p style="font-size:0.85rem;color:#ccc;margin-bottom:10px;">
-                        The evolved prompt may not contain all template variables (like <code style="color:#00d4ff;">{{variableName}}</code>).
-                        You may need to manually add them back before using in production.
-                    </p>
-                    <p style="font-size:0.8rem;color:#888;">
-                        Original template had: <span id="original-var-count">0</span> variables.
-                        Evolved prompt has: <span id="evolved-var-count">0</span> variables.
-                    </p>
-                </div>
-
-                <div class="card">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
-                        <h3 style="color:#2ecc71;margin:0;">Save Evolved Prompt to Langfuse</h3>
-                        <button class="btn btn-secondary btn-sm" onclick="editEvolvedPrompt()">Edit Prompt</button>
-                    </div>
-                    <div class="form-group" id="evolved-prompt-edit-section" style="display:none;">
-                        <label>Evolved Prompt (editable)</label>
-                        <textarea id="evolved-prompt-editable" style="min-height:150px;font-family:Monaco,Menlo,monospace;font-size:0.85rem;"></textarea>
-                        <button class="btn btn-primary btn-sm" onclick="saveEditedPrompt()" style="margin-top:8px;">Apply Changes</button>
-                    </div>
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;">
-                        <div class="form-group">
-                            <label>Save as (prompt name)</label>
-                            <input type="text" id="main-save-prompt-name" placeholder="my-optimized-prompt">
-                        </div>
-                        <div class="form-group">
-                            <label>Labels</label>
-                            <input type="text" id="main-save-prompt-labels" value="optimized, gepa" placeholder="optimized, production">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label>Commit Message</label>
-                        <input type="text" id="main-save-commit-message" placeholder="Auto-generated with improvement details if left empty">
-                    </div>
-                    <button class="btn btn-success" onclick="saveFromMainCompareTab()" style="width:100%;">Save to Langfuse</button>
-                </div>
-            </div><!-- End Compare Tab -->
         </div>
 
         <!-- Resize Handle -->
@@ -2536,6 +2522,7 @@ FEEDBACK: [detailed feedback]</textarea>
         let langfuseConnected = false;
         let selectedPrompt = null;
         let currentSeedPrompt = null;  // Store seed prompt for comparison
+        let currentBestPrompt = null;  // Store best evolved prompt
         let currentInitialScore = null;
         let currentBestScore = null;
         let currentSampleData = null;  // Store the sample data used for evolution
@@ -2823,25 +2810,25 @@ FEEDBACK: [detailed feedback]</textarea>
         function editEvolvedPrompt() {
             const editSection = document.getElementById('evolved-prompt-edit-section');
             const textarea = document.getElementById('evolved-prompt-editable');
-            const currentPrompt = document.getElementById('main-evolved-prompt-content').textContent;
 
-            textarea.value = currentPrompt;
+            textarea.value = currentBestPrompt || '';
             editSection.style.display = editSection.style.display === 'none' ? 'block' : 'none';
         }
 
         // Save edited prompt
         function saveEditedPrompt() {
             const editedPrompt = document.getElementById('evolved-prompt-editable').value;
+            currentBestPrompt = editedPrompt;
 
-            // Update all displays
-            document.getElementById('main-evolved-prompt-content').textContent = editedPrompt;
-            document.getElementById('evolved-prompt-content').textContent = editedPrompt;
-            document.getElementById('best-prompt').textContent = editedPrompt;
+            // Update displays
+            const rpEvolved = document.getElementById('evolved-prompt-content');
+            if (rpEvolved) rpEvolved.textContent = editedPrompt;
+            const bestPromptEl = document.getElementById('best-prompt');
+            if (bestPromptEl) bestPromptEl.textContent = editedPrompt;
 
-            // Re-render diff with edited prompt
+            // Re-render diff
             const diffHtml = renderDiff(currentSeedPrompt, editedPrompt);
-            document.getElementById('main-diff-view').innerHTML = diffHtml;
-            document.getElementById('diff-view').innerHTML = diffHtml;
+            document.getElementById('pe-results-diff').innerHTML = diffHtml;
 
             // Update warning
             updateTemplateWarning(editedPrompt, currentSeedPrompt);
@@ -3105,6 +3092,11 @@ FEEDBACK: [detailed feedback]</textarea>
         function hideEvolutionOverlay() { peWizard.hideOverlay(); }
         function mirrorToOverlay(data) { peWizard.mirrorProgress(data); }
         function addOverlayLog(message) { peWizard.addLog(message); }
+        function resetPeWizard() {
+            document.getElementById('pe-results-overlay').classList.remove('visible');
+            document.getElementById('pe-overlay').classList.remove('visible');
+            peWizard.hideOverlay();
+        }
 
         // ── Conversation Evolution Wizard ──
         function updateCalSummaryCard() {
@@ -3154,7 +3146,7 @@ FEEDBACK: [detailed feedback]</textarea>
             const rightPanel = document.getElementById('right-panel');
             const resizeHandle = document.getElementById('resize-handle');
             const centerPanel = document.querySelector('.center-panel');
-            if (tabName === 'calibration' || tabName === 'compare' || tabName === 'setup') {
+            if (tabName === 'calibration' || tabName === 'setup') {
                 rightPanel.style.display = 'none';
                 resizeHandle.style.display = 'none';
                 centerPanel.style.gridColumn = '2 / -1';
@@ -3178,90 +3170,50 @@ FEEDBACK: [detailed feedback]</textarea>
             while ((match = varRegex.exec(seedPrompt)) !== null) {
                 seedVars.add(match[1]);
             }
-            varRegex.lastIndex = 0; // Reset regex
+            varRegex.lastIndex = 0;
             const promptVars = new Set();
             while ((match = varRegex.exec(bestPrompt)) !== null) {
                 promptVars.add(match[1]);
             }
 
-            // Only restore client-side if prompt is missing variables
-            // If prompt already has variables, it was restored by backend (LLM retemplatization)
             const alreadyRestored = seedVars.size > 0 && promptVars.size >= seedVars.size * 0.8;
             const restoredBestPrompt = alreadyRestored ? bestPrompt : restoreTemplateVariables(bestPrompt, seedPrompt);
+            currentBestPrompt = restoredBestPrompt;
 
             console.log('[Compare] Seed vars:', seedVars.size, 'Prompt vars:', promptVars.size, 'Already restored:', alreadyRestored);
 
             const delta = (bestScore || 0) - (initialScore || 0);
             const diffHtml = renderDiff(seedPrompt, restoredBestPrompt);
 
-            // Update MAIN compare tab (center panel)
-            document.getElementById('main-diff-view').innerHTML = diffHtml;
-            document.getElementById('main-original-prompt-content').textContent = seedPrompt || '-';
-            document.getElementById('main-original-score-badge').textContent = `Score: ${initialScore ? initialScore.toFixed(1) : '-'}`;
-            document.getElementById('main-evolved-prompt-content').textContent = restoredBestPrompt || '-';
-            document.getElementById('main-evolved-score-badge').textContent = `Score: ${bestScore ? bestScore.toFixed(1) : '-'}`;
+            // Update PE results overlay
+            document.getElementById('pe-results-diff').innerHTML = diffHtml;
+            document.getElementById('pe-results-initial').textContent = initialScore ? initialScore.toFixed(1) : '—';
+            document.getElementById('pe-results-best').textContent = bestScore ? bestScore.toFixed(1) : '—';
 
-            const mainDeltaEl = document.getElementById('main-compare-delta');
-            mainDeltaEl.textContent = delta >= 0 ? `+${delta.toFixed(1)}` : delta.toFixed(1);
-            mainDeltaEl.className = delta >= 0 ? 'delta' : 'delta negative';
-            document.getElementById('main-compare-initial').textContent = initialScore ? initialScore.toFixed(1) : '-';
-            document.getElementById('main-compare-best').textContent = bestScore ? bestScore.toFixed(1) : '-';
-
-            const mainBanner = document.getElementById('main-improvement-banner');
-            if (delta > 0) {
-                mainBanner.style.background = 'rgba(46,204,113,0.1)';
-            } else if (delta < 0) {
-                mainBanner.style.background = 'rgba(231,76,60,0.1)';
+            const deltaChip = document.getElementById('pe-results-delta');
+            if (delta !== 0) {
+                deltaChip.textContent = delta >= 0 ? `+${delta.toFixed(1)}` : delta.toFixed(1);
+                deltaChip.style.display = 'inline-block';
+                deltaChip.style.background = delta > 0 ? 'rgba(46,204,113,0.2)' : 'rgba(231,76,60,0.2)';
+                deltaChip.style.color = delta > 0 ? '#2ecc71' : '#e74c3c';
             } else {
-                mainBanner.style.background = 'rgba(255,255,255,0.05)';
+                deltaChip.style.display = 'none';
             }
 
-            // Update right panel compare tab (smaller version)
-            document.getElementById('diff-view').innerHTML = diffHtml;
-            document.getElementById('original-prompt-content').textContent = seedPrompt || '-';
-            document.getElementById('original-score-badge').textContent = `Score: ${initialScore ? initialScore.toFixed(1) : '-'}`;
-            document.getElementById('evolved-prompt-content').textContent = restoredBestPrompt || '-';
-            document.getElementById('evolved-score-badge').textContent = `Score: ${bestScore ? bestScore.toFixed(1) : '-'}`;
-
-            const deltaEl = document.getElementById('compare-delta');
-            if (deltaEl) {
-                deltaEl.textContent = delta >= 0 ? `+${delta.toFixed(1)}` : delta.toFixed(1);
-                deltaEl.className = delta >= 0 ? 'delta' : 'delta negative';
-            }
-
-            const compareInitial = document.getElementById('compare-initial');
-            const compareBest = document.getElementById('compare-best');
-            if (compareInitial) compareInitial.textContent = initialScore ? initialScore.toFixed(1) : '-';
-            if (compareBest) compareBest.textContent = bestScore ? bestScore.toFixed(1) : '-';
-
-            const banner = document.getElementById('improvement-banner');
-            if (banner) {
-                if (delta > 0) {
-                    banner.style.background = 'rgba(46,204,113,0.1)';
-                    banner.innerHTML = `Score improved by <span class="delta" id="compare-delta">+${delta.toFixed(1)}</span> points
-                        <div style="font-size:0.8rem;color:#888;margin-top:4px;">
-                            <span id="compare-initial">${initialScore ? initialScore.toFixed(1) : '-'}</span> → <span id="compare-best">${bestScore ? bestScore.toFixed(1) : '-'}</span>
-                        </div>`;
-                } else if (delta < 0) {
-                    banner.style.background = 'rgba(231,76,60,0.1)';
-                    banner.innerHTML = `Score decreased by <span class="delta negative" id="compare-delta">${delta.toFixed(1)}</span> points
-                        <div style="font-size:0.8rem;color:#888;margin-top:4px;">
-                            <span id="compare-initial">${initialScore ? initialScore.toFixed(1) : '-'}</span> → <span id="compare-best">${bestScore ? bestScore.toFixed(1) : '-'}</span>
-                        </div>`;
-                } else {
-                    banner.style.background = 'rgba(255,255,255,0.05)';
-                    banner.innerHTML = `No score change
-                        <div style="font-size:0.8rem;color:#888;margin-top:4px;">
-                            Score: <span id="compare-best">${bestScore ? bestScore.toFixed(1) : '-'}</span>
-                        </div>`;
-                }
-            }
-
-            // Check if template variables were restored and show warning if needed
+            // Update template warning
             updateTemplateWarning(restoredBestPrompt, seedPrompt);
 
-            // Auto-switch to Compare Results tab when results are ready
-            switchMainTab('compare');
+            // Update right panel elements (if they exist)
+            const rpDiff = document.getElementById('diff-view');
+            if (rpDiff) rpDiff.innerHTML = diffHtml;
+            const rpOriginal = document.getElementById('original-prompt-content');
+            if (rpOriginal) rpOriginal.textContent = seedPrompt || '-';
+            const rpEvolved = document.getElementById('evolved-prompt-content');
+            if (rpEvolved) rpEvolved.textContent = restoredBestPrompt || '-';
+
+            // Transition: hide running overlay, show results overlay
+            document.getElementById('pe-overlay').classList.remove('visible');
+            document.getElementById('pe-results-overlay').classList.add('visible');
         }
 
         // ===== TRACE-DRIVEN EVOLUTION FUNCTIONS =====
@@ -4619,7 +4571,7 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
             }
 
             const config = getLangfuseConfig();
-            const promptContent = document.getElementById('main-evolved-prompt-content').textContent;
+            const promptContent = currentBestPrompt;
             const name = document.getElementById('main-save-prompt-name').value;
             const labels = document.getElementById('main-save-prompt-labels').value.split(',').map(l => l.trim()).filter(l => l);
             let commitMessage = document.getElementById('main-save-commit-message').value;
@@ -5531,8 +5483,7 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
         function resetUI() {
             document.getElementById('start-btn').style.display = 'block';
             document.getElementById('stop-btn').style.display = 'none';
-            // Hide evolution overlay and restore wizard
-            hideEvolutionOverlay();
+            // Running overlay is hidden by updateComparisonView when it shows results overlay
         }
 
         function clearImageGallery() {
