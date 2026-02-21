@@ -814,6 +814,166 @@
 
         .status-dot.connected { background: #2ecc71; }
         .status-dot.disconnected { background: #e74c3c; }
+
+        /* ===== SETUP WIZARD ===== */
+        .step-rail {
+            display: flex;
+            justify-content: center;
+            gap: 0;
+            padding: 14px 20px;
+            margin-bottom: 20px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 10px;
+            max-width: 720px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .step-rail-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            position: relative;
+            padding: 8px 14px;
+            transition: all 0.2s;
+            border-radius: 8px;
+        }
+        .step-rail-item:not(:last-child) { margin-right: 40px; }
+        .step-rail-item:not(:last-child)::after {
+            content: '';
+            position: absolute;
+            right: -30px;
+            top: 50%;
+            width: 20px;
+            height: 2px;
+            background: rgba(255,255,255,0.1);
+            transform: translateY(-50%);
+        }
+        .step-rail-item.done:not(:last-child)::after { background: #2ecc71; }
+        .step-badge {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            font-weight: 700;
+            flex-shrink: 0;
+            transition: all 0.2s;
+        }
+        .step-rail-item.locked .step-badge { background: rgba(255,255,255,0.08); color: #555; }
+        .step-rail-item.active .step-badge { background: #00d4ff; color: #000; box-shadow: 0 0 12px rgba(0,212,255,0.3); }
+        .step-rail-item.done .step-badge { background: #2ecc71; color: #fff; }
+        .step-label { font-size: 0.8rem; font-weight: 500; }
+        .step-rail-item.locked .step-label { color: #555; }
+        .step-rail-item.active .step-label { color: #fff; }
+        .step-rail-item.done .step-label { color: #2ecc71; }
+        .step-rail-item.locked { pointer-events: none; }
+
+        .wizard-step { display: none; max-width: 720px; margin: 0 auto; }
+        .wizard-step.active { display: block; animation: fadeInStep 0.25s ease-out; }
+        @keyframes fadeInStep {
+            from { opacity: 0; transform: translateY(8px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        .wizard-nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 20px;
+            padding: 0 20px;
+            max-width: 720px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .evolution-overlay { display: none; max-width: 720px; margin: 0 auto; }
+        .evolution-overlay.visible { display: block; animation: fadeInStep 0.3s ease-out; }
+
+        .score-banner {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            padding: 20px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 12px;
+            margin-bottom: 16px;
+        }
+        .score-banner .score-block { text-align: center; }
+        .score-banner .score-block .score-label { font-size: 0.7rem; color: #888; margin-bottom: 4px; }
+        .score-banner .score-block .score-num { font-size: 2rem; font-weight: 700; }
+        .score-banner .score-arrow { color: #00d4ff; font-size: 1.5rem; }
+        .improvement-chip {
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 700;
+        }
+        .improvement-chip.positive { background: rgba(46,204,113,0.2); color: #2ecc71; }
+        .improvement-chip.negative { background: rgba(231,76,60,0.2); color: #e74c3c; }
+
+        .summary-card {
+            background: rgba(46,204,113,0.05);
+            border: 1px solid rgba(46,204,113,0.2);
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        .summary-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            font-size: 0.9rem;
+        }
+        .summary-row:last-child { border-bottom: none; }
+        .summary-row .s-label { color: #888; }
+        .summary-row .s-value { color: #fff; font-weight: 600; }
+
+        .btn-save {
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.15);
+            color: #fff;
+            padding: 6px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: all 0.2s;
+        }
+        .btn-save:hover { background: rgba(255,255,255,0.14); }
+
+        /* Iteration history cards */
+        .iteration-card {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            background: rgba(255,255,255,0.04);
+            border-radius: 8px;
+            margin-bottom: 8px;
+        }
+        .iteration-card .iter-num {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #888;
+            flex-shrink: 0;
+        }
+        .iteration-card .iter-score { font-size: 1.2rem; font-weight: 700; color: #fff; }
+        .iteration-card .iter-delta { font-size: 0.8rem; margin-left: 4px; }
+        .iteration-card .iter-bar { flex: 1; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
+        .iteration-card .iter-bar-fill { height: 100%; border-radius: 2px; background: #00d4ff; transition: width 0.3s; }
+        .iteration-card.best { border: 1px solid rgba(46,204,113,0.3); }
+        .iteration-card.best .iter-num { background: #2ecc71; color: #fff; }
     </style>
 </head>
 <body>
@@ -923,7 +1083,7 @@
                     <input type="password" id="settings-langfuse-secret" placeholder="sk-lf-...">
                 </div>
                 <hr style="border-color:rgba(255,255,255,0.1);margin:15px 0;">
-                <p style="font-size:0.8rem;color:#888;margin-bottom:10px;">LangSmith (for trace-driven evolution)</p>
+                <p style="font-size:0.8rem;color:#888;margin-bottom:10px;">LangSmith Integration</p>
                 <div class="form-group">
                     <label>LangSmith API Key</label>
                     <input type="password" id="settings-langsmith-key" placeholder="lsv2_...">
@@ -1003,18 +1163,41 @@
         <!-- Center Panel - Evaluation Setup -->
         <div class="center-panel">
             <div class="tabs" id="main-tabs" style="margin-bottom:15px;">
-                <button class="tab-btn active" onclick="switchMainTab('setup')">Setup</button>
-                <button class="tab-btn" onclick="switchMainTab('trace-driven')">Trace-Driven</button>
-                <button class="tab-btn" onclick="switchMainTab('calibration')">🤖 Calibration</button>
+                <button class="tab-btn active" onclick="switchMainTab('setup')">Prompt Evolution</button>
+                <button class="tab-btn" onclick="switchMainTab('calibration')">Conversation Evolution</button>
                 <button class="tab-btn" onclick="switchMainTab('compare')">Compare Results</button>
             </div>
 
             <!-- Setup Tab -->
             <div class="main-tab-content active" id="main-tab-setup">
+
+            <div id="pe-container">
+            <!-- Step Rail -->
+            <div class="step-rail" id="pe-rail">
+                <div class="step-rail-item active" data-step="1" onclick="goToStep(1)">
+                    <div class="step-badge">1</div>
+                    <span class="step-label">Template</span>
+                </div>
+                <div class="step-rail-item locked" data-step="2" onclick="goToStep(2)">
+                    <div class="step-badge">2</div>
+                    <span class="step-label">Judge</span>
+                </div>
+                <div class="step-rail-item locked" data-step="3" onclick="goToStep(3)">
+                    <div class="step-badge">3</div>
+                    <span class="step-label">Samples</span>
+                </div>
+                <div class="step-rail-item locked" data-step="4" onclick="goToStep(4)">
+                    <div class="step-badge">4</div>
+                    <span class="step-label">Config</span>
+                </div>
+            </div>
+
+            <!-- Step 1: Prompt Template -->
+            <div class="wizard-step active" id="pe-step-1">
             <div class="card">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                     <h3 style="margin: 0;">Prompt Template</h3>
-                    <button class="btn btn-success btn-sm" onclick="savePromptToLangfuse()" title="Save prompt to Langfuse" id="save-prompt-btn">Save to Langfuse</button>
+                    <button class="btn btn-save btn-sm" onclick="savePromptToLangfuse()" title="Save prompt to Langfuse" id="save-prompt-btn">Save to Langfuse</button>
                 </div>
                 <div class="form-group">
                     <label>Prompt Name</label>
@@ -1028,7 +1211,10 @@ Output valid JSON array with: id, type, intent, purpose, confidence</textarea>
                 </div>
                 <div id="detected-variables" style="font-size:0.8rem;color:#00d4ff;margin-top:-10px;"></div>
             </div>
+            </div>
 
+            <!-- Step 2: Judge Prompt -->
+            <div class="wizard-step" id="pe-step-2">
             <div class="card">
                 <h3>Judge Prompt (Y) - Evaluation Criteria</h3>
                 <div class="form-group">
@@ -1040,7 +1226,7 @@ Output valid JSON array with: id, type, intent, purpose, confidence</textarea>
                         <label style="margin: 0;">Judge Prompt</label>
                         <div style="display: flex; gap: 6px;">
                             <button class="btn btn-secondary btn-sm" id="generate-judge-btn" onclick="generateJudge()">Generate Judge</button>
-                            <button class="btn btn-success btn-sm" onclick="saveJudgeToLangfuse()" title="Save to Langfuse">Save</button>
+                            <button class="btn btn-save btn-sm" onclick="saveJudgeToLangfuse()" title="Save to Langfuse">Save</button>
                         </div>
                     </div>
                     <textarea id="judge-prompt" placeholder="Define how to evaluate outputs...">You are a critical evaluator. Be strict and specific.
@@ -1058,7 +1244,10 @@ SCORE: [number]
 FEEDBACK: [detailed feedback]</textarea>
                 </div>
             </div>
+            </div>
 
+            <!-- Step 3: Sample Data -->
+            <div class="wizard-step" id="pe-step-3">
             <div class="card" id="sample-data-card">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                     <h3 style="margin: 0;">Sample Data for Testing <span id="sample-data-required" style="font-size: 0.75rem; color: #f39c12;">(required)</span></h3>
@@ -1079,7 +1268,10 @@ FEEDBACK: [detailed feedback]</textarea>
                 </div>
                 <button class="add-test-input" onclick="addTestInput()">+ Add Sample</button>
             </div>
+            </div>
 
+            <!-- Step 4: Model Config + Summary -->
+            <div class="wizard-step" id="pe-step-4">
             <div class="card">
                 <h3>Model Configuration</h3>
 
@@ -1223,206 +1415,125 @@ FEEDBACK: [detailed feedback]</textarea>
                 </div>
             </div>
 
+            <!-- Summary Card -->
+            <div class="summary-card" id="pe-summary">
+                <h4 style="margin:0 0 12px 0;color:#2ecc71;">Ready to Run</h4>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:0.85rem;">
+                    <div><span style="color:#888;">Prompt:</span> <span id="pe-summary-prompt">—</span></div>
+                    <div><span style="color:#888;">Task Model:</span> <span id="pe-summary-task">—</span></div>
+                    <div><span style="color:#888;">Samples:</span> <span id="pe-summary-samples">—</span></div>
+                    <div><span style="color:#888;">Judge Model:</span> <span id="pe-summary-judge">—</span></div>
+                    <div><span style="color:#888;">Iterations:</span> <span id="pe-summary-iterations">—</span></div>
+                    <div><span style="color:#888;">Population:</span> <span id="pe-summary-population">—</span></div>
+                </div>
+            </div>
+
             <div class="btn-group" style="display: flex; gap: 10px;">
                 <button class="btn btn-primary" id="start-btn" onclick="startEvolution()" style="flex: 1;">Start Evolution</button>
                 <button class="btn btn-danger" id="stop-btn" onclick="stopEvolution()" style="flex: 1; display: none;">Stop Evolution</button>
             </div>
-            </div><!-- End Setup Tab -->
+            </div>
+
+            <!-- Wizard Navigation -->
+            <div class="wizard-nav" id="pe-nav">
+                <button class="btn btn-secondary" id="pe-back-btn" onclick="wizardBack()" style="visibility:hidden;">Back</button>
+                <span style="color:#888;font-size:0.85rem;" id="pe-step-label">Step 1 of 4</span>
+                <button class="btn btn-primary" id="pe-next-btn" onclick="wizardNext()">Next</button>
+            </div>
+
+            <!-- Evolution Overlay (shown when running) -->
+            <div class="evolution-overlay" id="pe-overlay">
+                <div class="score-banner">
+                    <div style="text-align:center;">
+                        <div style="font-size:0.75rem;color:#888;margin-bottom:4px;">Original</div>
+                        <div style="font-size:2rem;font-weight:700;" id="pe-overlay-original">—</div>
+                    </div>
+                    <div style="font-size:1.5rem;color:#888;">→</div>
+                    <div style="text-align:center;">
+                        <div style="font-size:0.75rem;color:#888;margin-bottom:4px;">Best</div>
+                        <div style="font-size:2rem;font-weight:700;color:#2ecc71;" id="pe-overlay-best">—</div>
+                    </div>
+                    <div class="improvement-chip" id="pe-overlay-chip" style="display:none;">+0</div>
+                </div>
+
+                <div class="card" style="margin-top:15px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                        <h4 style="margin:0;">Evolution Progress</h4>
+                        <span style="color:#888;font-size:0.85rem;" id="pe-overlay-iteration">Iteration — / —</span>
+                    </div>
+                    <div class="progress-bar" style="margin-bottom:15px;">
+                        <div class="progress-fill" id="pe-overlay-progress" style="width:0%"></div>
+                    </div>
+                    <div class="log-container" id="pe-overlay-logs" style="max-height:300px;overflow-y:auto;">
+                        <div class="log-entry">Ready to start evolution...</div>
+                    </div>
+                </div>
+
+                <div style="text-align:center;margin-top:15px;">
+                    <button class="btn btn-danger" onclick="stopEvolution()">Stop Evolution</button>
+                </div>
+            </div>
+
+            </div><!-- pe-container -->
+            </div><!-- End Prompt Evolution Tab -->
 
             <!-- Compare Results Tab -->
-            <!-- Trace-Driven Tab -->
-            <div class="main-tab-content" id="main-tab-trace-driven" style="display:none;">
-                <div class="card">
-                    <h3 style="color:#00d4ff;margin-bottom:15px;">Trace-Driven Evolution</h3>
-                    <p style="font-size:0.9rem;color:#888;margin-bottom:15px;">
-                        Use real production failures from Langfuse or LangSmith to automatically improve your prompts.
-                    </p>
 
-                    <!-- Trace Source Selection -->
-                    <div class="form-group">
-                        <label>Trace Source</label>
-                        <select id="trace-source" onchange="onTraceSourceChange()">
-                            <option value="langfuse">Langfuse</option>
-                            <option value="langsmith">LangSmith</option>
-                            <option value="manual">Manual Failures</option>
-                        </select>
-                    </div>
-
-                    <!-- LangSmith Config (hidden by default) -->
-                    <div id="langsmith-config-section" style="display:none;background:rgba(255,255,255,0.05);padding:12px;border-radius:8px;margin-bottom:15px;">
-                        <div class="form-group">
-                            <label>LangSmith API Key</label>
-                            <input type="password" id="langsmith-api-key" placeholder="lsv2_...">
-                        </div>
-                        <div class="form-group">
-                            <label>Project Name</label>
-                            <input type="text" id="langsmith-project" placeholder="default">
-                        </div>
-                    </div>
-
-                    <!-- Trace Filters -->
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-                        <div class="form-group">
-                            <label>Prompt/Run Name (optional)</label>
-                            <input type="text" id="trace-prompt-name" placeholder="e.g., chat-completion">
-                        </div>
-                        <div class="form-group">
-                            <label>Score Threshold (failures below)</label>
-                            <input type="number" id="trace-score-threshold" value="50" min="0" max="100">
-                        </div>
-                    </div>
-
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-                        <div class="form-group">
-                            <label>Time Range</label>
-                            <select id="trace-time-range">
-                                <option value="24h">Last 24 hours</option>
-                                <option value="7d" selected>Last 7 days</option>
-                                <option value="30d">Last 30 days</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>Max Traces</label>
-                            <input type="number" id="trace-limit" value="50" min="1" max="200">
-                        </div>
-                    </div>
-
-                    <button class="btn btn-primary" onclick="fetchAndAnalyzeTraces(event)" style="width:100%;margin-bottom:15px;">
-                        Fetch & Analyze Traces
-                    </button>
-                </div>
-
-                <!-- Analysis Results (hidden until analyzed) -->
-                <div class="card" id="trace-analysis-results" style="display:none;">
-                    <h3 style="color:#00d4ff;margin-bottom:15px;">Analysis Results</h3>
-
-                    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:15px;">
-                        <div style="background:rgba(255,255,255,0.05);padding:15px;border-radius:8px;text-align:center;">
-                            <div style="font-size:1.5rem;font-weight:bold;color:#00d4ff;" id="trace-total-count">0</div>
-                            <div style="font-size:0.8rem;color:#888;">Total Traces</div>
-                        </div>
-                        <div style="background:rgba(231,76,60,0.1);padding:15px;border-radius:8px;text-align:center;">
-                            <div style="font-size:1.5rem;font-weight:bold;color:#e74c3c;" id="trace-failing-count">0</div>
-                            <div style="font-size:0.8rem;color:#888;">Failing Traces</div>
-                        </div>
-                        <div style="background:rgba(46,204,113,0.1);padding:15px;border-radius:8px;text-align:center;">
-                            <div style="font-size:1.5rem;font-weight:bold;color:#2ecc71;" id="trace-patterns-count">0</div>
-                            <div style="font-size:0.8rem;color:#888;">Failure Patterns</div>
-                        </div>
-                    </div>
-
-                    <!-- Failure Patterns -->
-                    <div id="failure-patterns-list" style="margin-bottom:15px;"></div>
-
-                    <!-- Trace Review Section -->
-                    <div style="margin-bottom:15px;">
-                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-                            <h4 style="color:#00d4ff;margin:0;">Review Traces</h4>
-                            <div style="font-size:0.8rem;color:#888;">
-                                <span id="selected-bad-count">0</span> marked as bad |
-                                <span id="selected-good-count">0</span> marked as good
-                            </div>
-                        </div>
-                        <p style="font-size:0.8rem;color:#888;margin-bottom:10px;">
-                            Click on traces to expand and review. Mark each trace as 👎 Bad or 👍 Good to use for evolution.
-                        </p>
-                        <div id="trace-samples-list" style="max-height:500px;overflow-y:auto;"></div>
-                        <div style="display:flex;gap:10px;margin-top:10px;">
-                            <button class="btn btn-secondary" onclick="markAllTracesBad()" style="flex:1;font-size:0.85rem;">
-                                Mark All as Bad
-                            </button>
-                            <button class="btn btn-secondary" onclick="markAllTracesGood()" style="flex:1;font-size:0.85rem;">
-                                Mark All as Good
-                            </button>
-                            <button class="btn btn-secondary" onclick="clearTraceMarks()" style="flex:1;font-size:0.85rem;">
-                                Clear All
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Enhanced Judge Preview -->
-                    <details>
-                        <summary style="cursor:pointer;color:#00d4ff;font-weight:600;margin-bottom:10px;">Enhanced Judge Criteria</summary>
-                        <pre id="enhanced-judge-preview" style="background:rgba(0,0,0,0.3);padding:10px;border-radius:6px;font-size:0.8rem;max-height:150px;overflow-y:auto;white-space:pre-wrap;"></pre>
-                    </details>
-                </div>
-
-                <!-- Start Evolution -->
-                <div class="card" id="trace-evolution-start" style="display:none;">
-                    <h3 style="color:#2ecc71;margin-bottom:15px;">Start Trace-Driven Evolution</h3>
-                    <p style="font-size:0.85rem;color:#888;margin-bottom:10px;">
-                        The evolution will use <span id="trace-sample-count">0</span> trace samples as training data.
-                        The judge will be enhanced with detected failure patterns.
-                    </p>
-                    <p style="font-size:0.8rem;color:#f39c12;margin-bottom:15px;background:rgba(243,156,18,0.1);padding:8px;border-radius:6px;">
-                        ⚠️ Make sure you have a <strong>seed prompt</strong> entered in the <a href="#" onclick="switchMainTab('setup');return false;" style="color:#00d4ff;">Setup tab</a> before starting.
-                    </p>
-                    <button class="btn btn-success" onclick="startTraceEvolution()" style="width:100%;">
-                        Start Evolution with Traces
-                    </button>
-                </div>
-
-                <!-- Report Failure Section -->
-                <div class="card">
-                    <h3 style="color:#888;margin-bottom:15px;">Report a Failure Manually</h3>
-                    <p style="font-size:0.85rem;color:#666;margin-bottom:15px;">
-                        Didn't get the output you wanted? Report it here to improve the prompt.
-                    </p>
-                    <div class="form-group">
-                        <label>Prompt Name</label>
-                        <input type="text" id="report-prompt-name" placeholder="e.g., scenario-generator">
-                    </div>
-                    <div class="form-group">
-                        <label>Your Input (what you asked)</label>
-                        <textarea id="report-input" style="min-height:60px;" placeholder="The input/question you provided..."></textarea>
-                    </div>
-                    <div class="form-group">
-                        <label>Bad Output (what you got)</label>
-                        <textarea id="report-output" style="min-height:60px;" placeholder="The response that wasn't what you needed..."></textarea>
-                    </div>
-                    <div class="form-group">
-                        <label>Expected Output (optional - what you wanted)</label>
-                        <textarea id="report-expected" style="min-height:60px;" placeholder="What the correct response should have been..."></textarea>
-                    </div>
-                    <button class="btn btn-secondary" onclick="reportFailure()" style="width:100%;">Report Failure</button>
-                </div>
-            </div><!-- End Trace-Driven Tab -->
-
-            <!-- Calibration Tab - Autonomous Conversation Calibration -->
+            <!-- Conversation Evolution Tab -->
             <div class="main-tab-content" id="main-tab-calibration" style="display:none;">
-                <div class="card">
-                    <h3 style="color:#00d4ff;margin-bottom:15px;">🤖 Autonomous Prompt Calibration</h3>
-                    <p style="font-size:0.85rem;color:#888;margin-bottom:15px;">
-                        Let AI simulate conversations with your prompts, find weaknesses, and automatically improve them.
-                    </p>
+            <div id="ce-container">
 
-                    <!-- Domain Context -->
+            <!-- Step Rail -->
+            <div class="step-rail" id="ce-rail">
+                <div class="step-rail-item active" data-step="1" onclick="calGoToStep(1)">
+                    <div class="step-badge">1</div>
+                    <span class="step-label">Context</span>
+                </div>
+                <div class="step-rail-item locked" data-step="2" onclick="calGoToStep(2)">
+                    <div class="step-badge">2</div>
+                    <span class="step-label">Models</span>
+                </div>
+                <div class="step-rail-item locked" data-step="3" onclick="calGoToStep(3)">
+                    <div class="step-badge">3</div>
+                    <span class="step-label">Judge</span>
+                </div>
+                <div class="step-rail-item locked" data-step="4" onclick="calGoToStep(4)">
+                    <div class="step-badge">4</div>
+                    <span class="step-label">Run</span>
+                </div>
+            </div>
+
+            <!-- Step 1: Context & Prompt -->
+            <div class="wizard-step active" id="ce-step-1">
+                <div class="card">
+                    <h3 style="margin-bottom:15px;">Context & System Prompt</h3>
+                    <p style="font-size:0.85rem;color:#888;margin-bottom:15px;">
+                        Describe what your assistant does and provide the system prompt to evolve through simulated conversations.
+                    </p>
                     <div class="form-group">
                         <label>Domain Context <span style="color:#888;font-weight:normal;">(describe what your assistant does)</span></label>
                         <textarea id="calibration-domain" style="min-height:80px;" placeholder="e.g., You are building a UI testing assistant that helps QA engineers manage test cases, analyze screenshots, and generate test steps..."></textarea>
                     </div>
-
-                    <!-- System Prompt -->
                     <div class="form-group">
-                        <label>System Prompt to Calibrate</label>
-                        <textarea id="calibration-system-prompt" style="min-height:240px;" placeholder="Enter your system prompt here, or it will use the one from the Setup tab..."></textarea>
+                        <label>System Prompt to Evolve</label>
+                        <textarea id="calibration-system-prompt" style="min-height:240px;" placeholder="Enter the system prompt you want to improve through multi-turn conversation testing..."></textarea>
                         <button class="btn btn-secondary btn-sm" onclick="copyPromptFromSetup()" style="margin-top:5px;">
-                            ↩ Copy from Setup Tab
+                            Copy from Prompt Evolution
                         </button>
                     </div>
                 </div>
+            </div>
 
-                <!-- Model Configuration -->
+            <!-- Step 2: Model Configuration -->
+            <div class="wizard-step" id="ce-step-2">
                 <div class="card">
-                    <h3 style="color:#888;margin-bottom:15px;">Model Configuration</h3>
-                    <p style="font-size:0.8rem;color:#666;margin-bottom:15px;">
+                    <h3 style="margin-bottom:15px;">Model Configuration</h3>
+                    <p style="font-size:0.8rem;color:#888;margin-bottom:15px;">
                         Configure models for conversation simulation and evaluation.
                     </p>
-
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;">
-                        <!-- Assistant Model (runs your prompts) -->
                         <div style="background:rgba(0,212,255,0.05);padding:12px;border-radius:8px;">
-                            <div style="font-size:0.85rem;color:#00d4ff;font-weight:600;margin-bottom:10px;">🤖 Assistant Model</div>
+                            <div style="font-size:0.85rem;color:#00d4ff;font-weight:600;margin-bottom:10px;">Assistant Model</div>
                             <div class="form-group" style="margin-bottom:8px;">
                                 <label style="font-size:0.75rem;">Provider</label>
                                 <select id="cal-assistant-provider" style="padding:6px;" onchange="updateCalibrationModelOptions('cal-assistant')">
@@ -1441,10 +1552,8 @@ FEEDBACK: [detailed feedback]</textarea>
                                 <input type="password" id="cal-assistant-api-key" placeholder="sk-...">
                             </div>
                         </div>
-
-                        <!-- Judge Model (evaluates conversations) -->
                         <div style="background:rgba(46,204,113,0.05);padding:12px;border-radius:8px;">
-                            <div style="font-size:0.85rem;color:#2ecc71;font-weight:600;margin-bottom:10px;">⚖️ Judge Model</div>
+                            <div style="font-size:0.85rem;color:#2ecc71;font-weight:600;margin-bottom:10px;">Judge Model</div>
                             <div class="form-group" style="margin-bottom:8px;">
                                 <label style="font-size:0.75rem;">Provider</label>
                                 <select id="cal-judge-provider" style="padding:6px;" onchange="updateCalibrationModelOptions('cal-judge')">
@@ -1464,18 +1573,19 @@ FEEDBACK: [detailed feedback]</textarea>
                             </div>
                         </div>
                     </div>
-
                     <div style="margin-top:10px;">
                         <button class="btn btn-secondary btn-sm" onclick="copyModelsFromMainPanel()" style="width:100%;">
-                            ↩ Copy Models from Left Panel
+                            Copy Models from Prompt Evolution
                         </button>
                     </div>
                 </div>
+            </div>
 
-                <!-- Judge Criteria -->
+            <!-- Step 3: Judge Criteria -->
+            <div class="wizard-step" id="ce-step-3">
                 <div class="card">
-                    <h3 style="color:#888;margin-bottom:15px;">Conversation Judge Criteria</h3>
-                    <p style="font-size:0.8rem;color:#666;margin-bottom:10px;">
+                    <h3 style="margin-bottom:15px;">Conversation Judge Criteria</h3>
+                    <p style="font-size:0.8rem;color:#888;margin-bottom:10px;">
                         Define what makes a good conversation. The judge will use this to score each simulated conversation.
                     </p>
                     <div class="form-group">
@@ -1496,11 +1606,12 @@ FEEDBACK: [detailed feedback]</textarea>
 - Keep responses concise for technical users"></textarea>
                     </div>
                 </div>
+            </div>
 
-                <!-- Calibration Settings -->
+            <!-- Step 4: Settings & Run -->
+            <div class="wizard-step" id="ce-step-4">
                 <div class="card">
-                    <h3 style="color:#888;margin-bottom:15px;">Calibration Settings</h3>
-
+                    <h3 style="margin-bottom:15px;">Settings</h3>
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;">
                         <div class="form-group">
                             <label>Scenarios per Iteration</label>
@@ -1519,53 +1630,63 @@ FEEDBACK: [detailed feedback]</textarea>
                             <input type="number" id="calibration-target" value="85" min="50" max="100">
                         </div>
                     </div>
+                </div>
 
-                    <div style="margin-top:15px;display:flex;gap:10px;">
-                        <button class="btn btn-primary" onclick="startCalibration()" id="start-calibration-btn" style="flex:1;">
-                            🚀 Start Calibration
-                        </button>
-                        <button class="btn btn-secondary" onclick="quickEvaluate()" style="flex:1;">
-                            🔍 Quick Evaluate
-                        </button>
-                        <button class="btn btn-secondary" onclick="testSingleConversation()" style="flex:1;">
-                            💬 Test One Chat
-                        </button>
+                <!-- Summary Card -->
+                <div class="summary-card" id="ce-summary">
+                    <h4 style="margin:0 0 12px 0;color:#2ecc71;">Ready to Run</h4>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:0.85rem;">
+                        <div><span style="color:#888;">Domain:</span> <span id="ce-summary-domain">—</span></div>
+                        <div><span style="color:#888;">Assistant:</span> <span id="ce-summary-asst">—</span></div>
+                        <div><span style="color:#888;">Scenarios:</span> <span id="ce-summary-scenarios">—</span></div>
+                        <div><span style="color:#888;">Judge:</span> <span id="ce-summary-judge">—</span></div>
+                        <div><span style="color:#888;">Iterations:</span> <span id="ce-summary-iterations">—</span></div>
+                        <div><span style="color:#888;">Turns:</span> <span id="ce-summary-turns">—</span></div>
                     </div>
                 </div>
 
-                <!-- Calibration Progress (hidden until started) -->
-                <div class="card" id="calibration-progress" style="display:none;">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
-                        <h3 style="color:#00d4ff;margin:0;">Calibration Progress</h3>
-                        <div>
-                            <span id="calibration-status-badge" style="background:#f39c12;color:#fff;padding:4px 10px;border-radius:12px;font-size:0.8rem;">Running</span>
-                            <button class="btn btn-secondary btn-sm" onclick="stopCalibration()" id="stop-calibration-btn" style="margin-left:10px;">Stop</button>
-                        </div>
-                    </div>
+                <div style="display:flex;gap:10px;">
+                    <button class="btn btn-primary" onclick="startCalibration()" id="start-calibration-btn" style="flex:2;">
+                        Start Conversation Evolution
+                    </button>
+                    <button class="btn btn-secondary" onclick="quickEvaluate()" style="flex:1;">
+                        Quick Evaluate
+                    </button>
+                    <button class="btn btn-secondary" onclick="testSingleConversation()" style="flex:1;">
+                        Test One Chat
+                    </button>
+                </div>
+            </div>
 
-                    <!-- Progress Stats -->
-                    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:15px;">
-                        <div style="background:rgba(255,255,255,0.05);padding:12px;border-radius:8px;text-align:center;">
-                            <div style="font-size:1.3rem;font-weight:bold;color:#00d4ff;" id="cal-iteration">0/0</div>
-                            <div style="font-size:0.75rem;color:#888;">Iteration</div>
-                        </div>
-                        <div style="background:rgba(255,255,255,0.05);padding:12px;border-radius:8px;text-align:center;">
-                            <div style="font-size:1.3rem;font-weight:bold;color:#2ecc71;" id="cal-current-score">-</div>
-                            <div style="font-size:0.75rem;color:#888;">Current Score</div>
-                        </div>
-                        <div style="background:rgba(255,255,255,0.05);padding:12px;border-radius:8px;text-align:center;">
-                            <div style="font-size:1.3rem;font-weight:bold;color:#e74c3c;" id="cal-success-rate">-</div>
-                            <div style="font-size:0.75rem;color:#888;">Success Rate</div>
-                        </div>
-                        <div style="background:rgba(46,204,113,0.1);padding:12px;border-radius:8px;text-align:center;">
-                            <div style="font-size:1.3rem;font-weight:bold;color:#2ecc71;" id="cal-improvement">+0</div>
-                            <div style="font-size:0.75rem;color:#888;">Improvement</div>
-                        </div>
-                    </div>
+            <!-- Wizard Navigation -->
+            <div class="wizard-nav" id="ce-nav">
+                <button class="btn btn-secondary" id="ce-back-btn" onclick="calWizardBack()" style="visibility:hidden;">Back</button>
+                <span style="color:#888;font-size:0.85rem;" id="ce-step-label">Step 1 of 4</span>
+                <button class="btn btn-primary" id="ce-next-btn" onclick="calWizardNext()">Next</button>
+            </div>
 
-                    <!-- Progress Bar -->
+            <!-- Conversation Evolution Overlay (shown when running) -->
+            <div class="evolution-overlay" id="ce-overlay">
+                <div class="score-banner">
+                    <div style="text-align:center;">
+                        <div style="font-size:0.75rem;color:#888;margin-bottom:4px;">Initial</div>
+                        <div style="font-size:2rem;font-weight:700;" id="ce-overlay-original">—</div>
+                    </div>
+                    <div style="font-size:1.5rem;color:#888;">→</div>
+                    <div style="text-align:center;">
+                        <div style="font-size:0.75rem;color:#888;margin-bottom:4px;">Current</div>
+                        <div style="font-size:2rem;font-weight:700;color:#2ecc71;" id="ce-overlay-best">—</div>
+                    </div>
+                    <div class="improvement-chip" id="ce-overlay-chip" style="display:none;">+0</div>
+                </div>
+
+                <div class="card" style="margin-top:15px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                        <h4 style="margin:0;">Evolution Progress</h4>
+                        <span style="color:#888;font-size:0.85rem;" id="ce-overlay-iteration">Iteration — / —</span>
+                    </div>
                     <div style="background:rgba(255,255,255,0.1);border-radius:8px;overflow:hidden;height:8px;margin-bottom:15px;">
-                        <div id="calibration-progress-bar" style="background:linear-gradient(90deg,#00d4ff,#2ecc71);height:100%;width:0%;transition:width 0.3s;"></div>
+                        <div id="ce-overlay-progress" style="background:linear-gradient(90deg,#00d4ff,#2ecc71);height:100%;width:0%;transition:width 0.3s;"></div>
                     </div>
 
                     <!-- Failure Patterns -->
@@ -1576,25 +1697,39 @@ FEEDBACK: [detailed feedback]</textarea>
                         </div>
                     </div>
 
-                    <!-- Live Log -->
-                    <details open>
-                        <summary style="cursor:pointer;color:#00d4ff;font-weight:600;margin-bottom:10px;">Live Log</summary>
-                        <div id="calibration-log" style="background:rgba(0,0,0,0.3);padding:10px;border-radius:6px;max-height:200px;overflow-y:auto;font-family:monospace;font-size:0.8rem;">
-                        </div>
-                    </details>
+                    <div class="log-container" id="ce-overlay-logs" style="max-height:250px;overflow-y:auto;">
+                        <div class="log-entry">Ready to start...</div>
+                    </div>
                 </div>
 
-                <!-- Results (hidden until completed) -->
-                <div class="card" id="calibration-results" style="display:none;">
-                    <h3 style="color:#2ecc71;margin-bottom:15px;">✅ Calibration Complete</h3>
+                <!-- Live Conversations -->
+                <div class="card" id="cal-conversations-section" style="margin-top:15px;">
+                    <h3 style="color:#888;margin-bottom:10px;font-size:0.95rem;">Live Conversations</h3>
+                    <div id="cal-live-conversations" style="max-height:400px;overflow-y:auto;"></div>
+                    <div id="cal-conversations-list" style="max-height:400px;overflow-y:auto;display:none;"></div>
+                </div>
 
-                    <div class="improvement-banner" style="margin-bottom:15px;">
-                        <span style="font-size:1rem;">Score improved by </span>
-                        <span class="delta" id="cal-final-delta" style="font-size:1.5rem;">+0</span>
-                        <span style="font-size:1rem;"> points</span>
-                        <div style="font-size:0.9rem;color:#888;margin-top:6px;">
-                            <span id="cal-initial-score">-</span> → <span id="cal-final-score">-</span>
+                <div style="text-align:center;margin-top:15px;">
+                    <button class="btn btn-danger" onclick="stopCalibration()" id="stop-calibration-btn">Stop Evolution</button>
+                </div>
+            </div>
+
+            <!-- Results (shown after completion, replaces overlay) -->
+            <div class="evolution-overlay" id="ce-results-overlay">
+                <div class="card" id="calibration-results">
+                    <h3 style="color:#2ecc71;margin-bottom:15px;">Evolution Complete</h3>
+
+                    <div class="score-banner" style="margin-bottom:15px;">
+                        <div style="text-align:center;">
+                            <div style="font-size:0.75rem;color:#888;margin-bottom:4px;">Initial</div>
+                            <div style="font-size:2rem;font-weight:700;" id="cal-initial-score">—</div>
                         </div>
+                        <div style="font-size:1.5rem;color:#888;">→</div>
+                        <div style="text-align:center;">
+                            <div style="font-size:0.75rem;color:#888;margin-bottom:4px;">Final</div>
+                            <div style="font-size:2rem;font-weight:700;color:#2ecc71;" id="cal-final-score">—</div>
+                        </div>
+                        <div class="improvement-chip" id="cal-final-delta" style="display:none;">+0</div>
                     </div>
 
                     <!-- What Changed Section -->
@@ -1604,37 +1739,24 @@ FEEDBACK: [detailed feedback]</textarea>
                             <span><div class="legend-box added"></div> Added</span>
                         </div>
                         <h4 style="color:#00d4ff;margin-bottom:10px;">What Changed</h4>
-                        <div class="diff-view" id="cal-diff-view" style="max-height:250px;">
-                        </div>
+                        <div class="diff-view" id="cal-diff-view" style="max-height:250px;"></div>
                     </div>
 
                     <div class="form-group">
-                        <label>Calibrated System Prompt</label>
+                        <label>Evolved System Prompt</label>
                         <textarea id="calibrated-prompt-output" style="min-height:150px;" readonly></textarea>
                     </div>
 
                     <div style="display:flex;gap:10px;">
-                        <button class="btn btn-primary" onclick="useCalibratedPrompt()" style="flex:1;">
-                            Use This Prompt
-                        </button>
-                        <button class="btn btn-secondary" onclick="copyToClipboard('calibrated-prompt-output')" style="flex:1;">
-                            📋 Copy to Clipboard
-                        </button>
+                        <button class="btn btn-primary" onclick="useCalibratedPrompt()" style="flex:1;">Use This Prompt</button>
+                        <button class="btn btn-secondary" onclick="copyToClipboard('calibrated-prompt-output', this)" style="flex:1;">Copy to Clipboard</button>
+                        <button class="btn btn-secondary" onclick="resetCalWizard()" style="flex:1;">Back to Setup</button>
                     </div>
                 </div>
+            </div>
 
-                <!-- Live Conversations (shown during calibration) -->
-                <div class="card" id="cal-conversations-section" style="display:none;">
-                    <h3 style="color:#888;margin-bottom:15px;">📡 Live Conversations</h3>
-                    <p style="font-size:0.8rem;color:#666;margin-bottom:10px;">
-                        Watch conversations as they happen in real-time.
-                    </p>
-                    <div id="cal-live-conversations" style="max-height:500px;overflow-y:auto;">
-                    </div>
-                    <div id="cal-conversations-list" style="max-height:400px;overflow-y:auto;display:none;">
-                    </div>
-                </div>
-            </div><!-- End Calibration Tab -->
+            </div><!-- ce-container -->
+            </div><!-- End Conversation Evolution Tab -->
 
             <div class="main-tab-content" id="main-tab-compare" style="display:none;">
                 <div class="card">
@@ -1740,11 +1862,11 @@ FEEDBACK: [detailed feedback]</textarea>
 
                 <div class="stats-row">
                     <div class="stat-item">
-                        <div class="stat-value" id="stat-iteration">0/<span id="stat-max-iterations">0</span></div>
+                        <div class="stat-value" id="stat-iteration">—/<span id="stat-max-iterations">—</span></div>
                         <div class="stat-label">Iteration</div>
                     </div>
                     <div class="stat-item">
-                        <div class="stat-value" id="stat-score">0</div>
+                        <div class="stat-value" id="stat-score">—</div>
                         <div class="stat-label">Best Score</div>
                     </div>
                     <div class="stat-item">
@@ -2849,6 +2971,170 @@ FEEDBACK: [detailed feedback]</textarea>
             document.getElementById(`tab-${tabName}`).classList.add('active');
         }
 
+        // ── Generic Wizard Engine ──
+        // Reusable for both Prompt Evolution and Conversation Evolution tabs
+        function createWizard(prefix, totalSteps, summaryFn) {
+            const state = { step: 1, total: totalSteps };
+
+            function el(id) { return document.getElementById(`${prefix}-${id}`); }
+            function qsa(sel) { return (el('container') || document).querySelectorAll(sel); }
+            const container = () => document.getElementById(`${prefix}-container`);
+
+            function goTo(n) {
+                if (n < 1 || n > totalSteps) return;
+                const item = container()?.querySelector(`.step-rail-item[data-step="${n}"]`);
+                if (item && item.classList.contains('locked')) return;
+                set(n);
+            }
+
+            function set(n) {
+                state.step = n;
+                container()?.querySelectorAll('.wizard-step').forEach(s => s.classList.remove('active'));
+                const target = el(`step-${n}`);
+                if (target) target.classList.add('active');
+
+                container()?.querySelectorAll('.step-rail-item').forEach(item => {
+                    const s = parseInt(item.dataset.step);
+                    item.classList.remove('active', 'done', 'locked');
+                    if (s < n) item.classList.add('done');
+                    else if (s === n) item.classList.add('active');
+                    else item.classList.add('locked');
+                });
+                container()?.querySelectorAll('.step-rail-item.done .step-badge').forEach(b => { b.textContent = '\u2713'; });
+                container()?.querySelectorAll('.step-rail-item:not(.done) .step-badge').forEach(b => { b.textContent = b.closest('.step-rail-item').dataset.step; });
+
+                const backBtn = el('back-btn');
+                const nextBtn = el('next-btn');
+                const label = el('step-label');
+                if (backBtn) backBtn.style.visibility = n === 1 ? 'hidden' : 'visible';
+                if (nextBtn) nextBtn.style.display = n === totalSteps ? 'none' : '';
+                if (label) label.textContent = `Step ${n} of ${totalSteps}`;
+
+                if (n === totalSteps && summaryFn) summaryFn();
+            }
+
+            function next() { if (state.step < totalSteps) set(state.step + 1); }
+            function back() { if (state.step > 1) set(state.step - 1); }
+
+            function showOverlay() {
+                el('rail')  && (el('rail').style.display = 'none');
+                container()?.querySelectorAll('.wizard-step').forEach(s => s.style.display = 'none');
+                el('nav')   && (el('nav').style.display = 'none');
+                el('overlay')?.classList.add('visible');
+            }
+
+            function hideOverlay() {
+                el('overlay')?.classList.remove('visible');
+                el('rail')  && (el('rail').style.display = 'flex');
+                container()?.querySelectorAll('.wizard-step').forEach(s => s.style.display = '');
+                el('nav')   && (el('nav').style.display = 'flex');
+                set(state.step);
+            }
+
+            function mirrorProgress(data) {
+                if (data.iteration !== undefined && data.max_iterations !== undefined) {
+                    const lbl = el('overlay-iteration');
+                    if (lbl) lbl.textContent = `Iteration ${data.iteration} / ${data.max_iterations}`;
+                    const fill = el('overlay-progress');
+                    if (fill) fill.style.width = Math.round((data.iteration / data.max_iterations) * 100) + '%';
+                }
+                if (data.best_score !== undefined) {
+                    const bs = el('overlay-best');
+                    if (bs) bs.textContent = data.best_score.toFixed(1);
+                }
+                if (data.initial_score !== undefined) {
+                    const os = el('overlay-original');
+                    if (os) os.textContent = data.initial_score.toFixed(1);
+                }
+                if (data.best_score !== undefined && data.initial_score !== undefined) {
+                    const delta = data.best_score - data.initial_score;
+                    const chip = el('overlay-chip');
+                    if (chip) {
+                        if (delta > 0) {
+                            chip.textContent = '+' + delta.toFixed(1);
+                            chip.style.display = 'inline-block';
+                            chip.style.background = 'rgba(46,204,113,0.2)';
+                            chip.style.color = '#2ecc71';
+                        } else {
+                            chip.style.display = 'none';
+                        }
+                    }
+                }
+            }
+
+            function addLog(message) {
+                const c = el('overlay-logs');
+                if (!c) return;
+                const entry = document.createElement('div');
+                entry.className = 'log-entry';
+                entry.textContent = message;
+                c.appendChild(entry);
+                c.scrollTop = c.scrollHeight;
+            }
+
+            return { state, goTo, set, next, back, showOverlay, hideOverlay, mirrorProgress, addLog, el };
+        }
+
+        // ── Prompt Evolution Wizard ──
+        function updateSummaryCard() {
+            const promptName = document.getElementById('selected-prompt-name').value || '—';
+            const taskProv = document.getElementById('task-provider').value;
+            const taskMod = document.getElementById('task-model');
+            const taskModelText = taskMod.options[taskMod.selectedIndex] ? taskMod.options[taskMod.selectedIndex].text : '—';
+            const judgeProv = document.getElementById('judge-provider').value;
+            const judgeMod = document.getElementById('judge-model');
+            const judgeModelText = judgeMod.options[judgeMod.selectedIndex] ? judgeMod.options[judgeMod.selectedIndex].text : '—';
+            const sampleCount = document.querySelectorAll('.sample-data-input').length;
+            const iterations = document.getElementById('max-iterations').value;
+            const population = document.getElementById('population-size').value;
+
+            document.getElementById('pe-summary-prompt').textContent = promptName;
+            document.getElementById('pe-summary-task').textContent = `${taskProv} / ${taskModelText}`;
+            document.getElementById('pe-summary-judge').textContent = `${judgeProv} / ${judgeModelText}`;
+            document.getElementById('pe-summary-samples').textContent = sampleCount;
+            document.getElementById('pe-summary-iterations').textContent = iterations;
+            document.getElementById('pe-summary-population').textContent = population;
+        }
+        const peWizard = createWizard('pe', 4, updateSummaryCard);
+
+        // Convenience aliases used by HTML onclick handlers
+        function goToStep(n) { peWizard.goTo(n); }
+        function wizardNext() { peWizard.next(); }
+        function wizardBack() { peWizard.back(); }
+        function showEvolutionOverlay() { peWizard.showOverlay(); }
+        function hideEvolutionOverlay() { peWizard.hideOverlay(); }
+        function mirrorToOverlay(data) { peWizard.mirrorProgress(data); }
+        function addOverlayLog(message) { peWizard.addLog(message); }
+
+        // ── Conversation Evolution Wizard ──
+        function updateCalSummaryCard() {
+            const domain = document.getElementById('calibration-domain').value.substring(0, 40) || '—';
+            const asstProv = document.getElementById('cal-assistant-provider').value;
+            const asstMod = document.getElementById('cal-assistant-model');
+            const asstModelText = asstMod.options[asstMod.selectedIndex] ? asstMod.options[asstMod.selectedIndex].text : '—';
+            const judgeProv = document.getElementById('cal-judge-provider').value;
+            const judgeMod = document.getElementById('cal-judge-model');
+            const judgeModelText = judgeMod.options[judgeMod.selectedIndex] ? judgeMod.options[judgeMod.selectedIndex].text : '—';
+            const scenarios = document.getElementById('calibration-scenarios').value;
+            const iterations = document.getElementById('calibration-iterations').value;
+
+            document.getElementById('ce-summary-domain').textContent = domain + (domain.length >= 40 ? '...' : '');
+            document.getElementById('ce-summary-asst').textContent = `${asstProv} / ${asstModelText}`;
+            document.getElementById('ce-summary-judge').textContent = `${judgeProv} / ${judgeModelText}`;
+            document.getElementById('ce-summary-scenarios').textContent = scenarios;
+            document.getElementById('ce-summary-iterations').textContent = iterations;
+            document.getElementById('ce-summary-turns').textContent = document.getElementById('calibration-max-turns').value;
+        }
+        const ceWizard = createWizard('ce', 4, updateCalSummaryCard);
+
+        function calGoToStep(n) { ceWizard.goTo(n); }
+        function calWizardNext() { ceWizard.next(); }
+        function calWizardBack() { ceWizard.back(); }
+        function showCalOverlay() { ceWizard.showOverlay(); }
+        function hideCalOverlay() { ceWizard.hideOverlay(); }
+        function mirrorToCalOverlay(data) { ceWizard.mirrorProgress(data); }
+        function addCalOverlayLog(message) { ceWizard.addLog(message); }
+
         function switchMainTab(tabName) {
             // Update main tab buttons
             const mainTabs = document.getElementById('main-tabs');
@@ -2868,7 +3154,7 @@ FEEDBACK: [detailed feedback]</textarea>
             const rightPanel = document.getElementById('right-panel');
             const resizeHandle = document.getElementById('resize-handle');
             const centerPanel = document.querySelector('.center-panel');
-            if (tabName === 'calibration' || tabName === 'compare') {
+            if (tabName === 'calibration' || tabName === 'compare' || tabName === 'setup') {
                 rightPanel.style.display = 'none';
                 resizeHandle.style.display = 'none';
                 centerPanel.style.gridColumn = '2 / -1';
@@ -3627,20 +3913,25 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
                 const data = await response.json();
                 currentCalibrationId = data.session_id;
 
-                // Show progress UI and reset state
-                document.getElementById('calibration-progress').style.display = 'block';
-                document.getElementById('calibration-results').style.display = 'none';
+                // Show overlay and reset state
+                showCalOverlay();
+                document.getElementById('ce-results-overlay').classList.remove('visible');
                 document.getElementById('cal-diff-section').style.display = 'none';
-                document.getElementById('cal-conversations-section').style.display = 'block';  // Show conversations section
+                document.getElementById('cal-conversations-section').style.display = 'block';
                 currentCalibrationOriginalPrompt = null;
-                document.getElementById('cal-live-conversations').innerHTML = '';  // Clear previous
+                document.getElementById('cal-live-conversations').innerHTML = '';
+                document.getElementById('ce-overlay-logs').innerHTML = '<div class="log-entry">Starting conversation evolution...</div>';
+                document.getElementById('ce-overlay-original').textContent = '—';
+                document.getElementById('ce-overlay-best').textContent = '—';
+                document.getElementById('ce-overlay-chip').style.display = 'none';
+                document.getElementById('ce-overlay-progress').style.width = '0%';
+                document.getElementById('ce-overlay-iteration').textContent = 'Iteration — / —';
+                document.getElementById('cal-failure-patterns').innerHTML = '<p style="color:#666;font-size:0.85rem;">No patterns detected yet...</p>';
 
-                // Update button to "Stop" mode
+                // Reset button
                 const btn = document.getElementById('start-calibration-btn');
-                btn.textContent = '⏹ Stop Calibration';
-                btn.onclick = stopCalibration;
                 btn.disabled = false;
-                btn.style.background = '#e74c3c';
+                btn.textContent = 'Start Conversation Evolution';
 
                 // Connect to stream
                 connectToCalibrationStream(currentCalibrationId);
@@ -3661,22 +3952,13 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
             const url = `/api/calibration/${sessionId}/stream${authToken ? `?token=${authToken}` : ''}`;
             calibrationEventSource = new EventSource(url);
 
-            const logContainer = document.getElementById('calibration-log');
-            logContainer.innerHTML = '';
-
             calibrationEventSource.onmessage = (event) => {
                 console.log('Calibration event:', event.data);
             };
 
             calibrationEventSource.addEventListener('log', (event) => {
                 const data = JSON.parse(event.data);
-                const logEntry = document.createElement('div');
-                logEntry.style.marginBottom = '4px';
-                logEntry.style.borderLeft = '2px solid #00d4ff';
-                logEntry.style.paddingLeft = '8px';
-                logEntry.innerHTML = `<span style="color:#666;">[${data.iteration || 0}]</span> ${data.message}`;
-                logContainer.appendChild(logEntry);
-                logContainer.scrollTop = logContainer.scrollHeight;
+                addCalOverlayLog(`[${data.iteration || 0}] ${data.message}`);
             });
 
             calibrationEventSource.addEventListener('iteration', (event) => {
@@ -3686,18 +3968,13 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
 
             calibrationEventSource.addEventListener('status', (event) => {
                 const data = JSON.parse(event.data);
-                document.getElementById('cal-iteration').textContent = `${data.current_iteration}/${document.getElementById('calibration-iterations').value}`;
-
-                const progressPct = (data.current_iteration / parseInt(document.getElementById('calibration-iterations').value)) * 100;
-                document.getElementById('calibration-progress-bar').style.width = `${progressPct}%`;
-
-                if (data.best_score) {
-                    document.getElementById('cal-current-score').textContent = data.best_score.toFixed(1);
-                }
-                if (data.initial_score && data.best_score) {
-                    const improvement = data.best_score - data.initial_score;
-                    document.getElementById('cal-improvement').textContent = (improvement >= 0 ? '+' : '') + improvement.toFixed(1);
-                }
+                const maxIter = parseInt(document.getElementById('calibration-iterations').value);
+                mirrorToCalOverlay({
+                    iteration: data.current_iteration,
+                    max_iterations: maxIter,
+                    best_score: data.best_score,
+                    initial_score: data.initial_score
+                });
             });
 
             calibrationEventSource.addEventListener('conversation', (event) => {
@@ -3708,39 +3985,27 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
             calibrationEventSource.addEventListener('complete', (event) => {
                 const data = JSON.parse(event.data);
                 calibrationEventSource.close();
-
-                // Reset button to Start mode
                 resetCalibrationButton();
-
-                // Update status badge
-                const badge = document.getElementById('calibration-status-badge');
-                if (data.status === 'completed') {
-                    badge.textContent = 'Completed';
-                    badge.style.background = '#2ecc71';
-                } else if (data.status === 'error') {
-                    badge.textContent = 'Error';
-                    badge.style.background = '#e74c3c';
-                } else {
-                    badge.textContent = 'Stopped';
-                    badge.style.background = '#f39c12';
-                }
 
                 // Show results
                 if (data.best_prompts && data.best_prompts.system_prompt) {
-                    document.getElementById('calibration-results').style.display = 'block';
+                    // Hide running overlay, show results overlay
+                    document.getElementById('ce-overlay').classList.remove('visible');
+                    document.getElementById('ce-results-overlay').classList.add('visible');
+
                     document.getElementById('calibrated-prompt-output').value = data.best_prompts.system_prompt;
 
-                    // Set scores and calculate delta
                     const finalScore = data.best_score || 0;
                     const initialScore = data.initial_score || 0;
                     const delta = finalScore - initialScore;
 
                     document.getElementById('cal-final-score').textContent = finalScore.toFixed(1);
                     document.getElementById('cal-initial-score').textContent = initialScore.toFixed(1);
-                    document.getElementById('cal-final-delta').textContent = (delta >= 0 ? '+' : '') + delta.toFixed(1);
-
-                    // Show diff between original and evolved prompt
-                    console.log('[Calibration] Complete data:', JSON.stringify(data, null, 2));
+                    const deltaEl = document.getElementById('cal-final-delta');
+                    deltaEl.textContent = (delta >= 0 ? '+' : '') + delta.toFixed(1);
+                    deltaEl.style.display = 'inline-block';
+                    deltaEl.style.background = delta >= 0 ? 'rgba(46,204,113,0.2)' : 'rgba(231,76,60,0.2)';
+                    deltaEl.style.color = delta >= 0 ? '#2ecc71' : '#e74c3c';
 
                     if (data.original_system_prompt) {
                         currentCalibrationOriginalPrompt = data.original_system_prompt;
@@ -3749,8 +4014,10 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
                         document.getElementById('cal-diff-section').style.display = 'block';
                     }
 
-                    // Load conversations
                     loadCalibrationConversations(currentCalibrationId);
+                } else {
+                    // No results (stopped/error) - go back to wizard
+                    hideCalOverlay();
                 }
             });
 
@@ -3761,10 +4028,16 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
 
         function resetCalibrationButton() {
             const btn = document.getElementById('start-calibration-btn');
-            btn.textContent = '🚀 Start Calibration';
+            btn.textContent = 'Start Conversation Evolution';
             btn.onclick = startCalibration;
             btn.disabled = false;
-            btn.style.background = '';  // Reset to default
+            btn.style.background = '';
+        }
+
+        function resetCalWizard() {
+            document.getElementById('ce-results-overlay').classList.remove('visible');
+            hideCalOverlay();
+            ceWizard.set(4);
         }
 
         function displayLiveConversation(data) {
@@ -3815,11 +4088,9 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
         }
 
         function updateCalibrationStats(data) {
+            // Mirror score to overlay
             if (data.avg_score !== undefined) {
-                document.getElementById('cal-current-score').textContent = data.avg_score.toFixed(1);
-            }
-            if (data.success_rate !== undefined) {
-                document.getElementById('cal-success-rate').textContent = (data.success_rate * 100).toFixed(0) + '%';
+                mirrorToCalOverlay({ best_score: data.avg_score });
             }
 
             // Update failure patterns
@@ -3849,11 +4120,8 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
                     calibrationEventSource.close();
                 }
 
-                // Reset button
                 resetCalibrationButton();
-
-                document.getElementById('calibration-status-badge').textContent = 'Stopped';
-                document.getElementById('calibration-status-badge').style.background = '#f39c12';
+                hideCalOverlay();
 
             } catch (error) {
                 console.error('Error stopping calibration:', error);
@@ -4074,10 +4342,16 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
             }
         }
 
-        function copyToClipboard(elementId) {
-            const text = document.getElementById(elementId).value;
+        function copyToClipboard(elementId, btn) {
+            const el = document.getElementById(elementId);
+            const text = el.value || el.textContent;
             navigator.clipboard.writeText(text).then(() => {
-                alert('Copied to clipboard!');
+                if (btn) {
+                    const orig = btn.textContent;
+                    btn.textContent = 'Copied \u2713';
+                    btn.style.color = '#2ecc71';
+                    setTimeout(() => { btn.textContent = orig; btn.style.color = ''; }, 1500);
+                }
             }).catch(err => {
                 console.error('Copy failed:', err);
             });
@@ -4145,15 +4419,18 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
                 return;
             }
 
-            list.innerHTML = prompts.map(p => `
+            list.innerHTML = prompts.map(p => {
+                const humanName = p.name.replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                return `
                 <div class="prompt-item" data-name="${escapeHtml(p.name)}" onclick="selectPrompt('${escapeHtml(p.name)}')">
-                    <div class="prompt-name">${escapeHtml(p.name)}</div>
+                    <div class="prompt-name">${escapeHtml(humanName)}</div>
+                    <div style="font-size:0.65rem;color:#555;font-family:monospace;margin-top:1px;">${escapeHtml(p.name)}</div>
                     <div class="prompt-meta">v${p.lastVersion || '?'} · ${p.type || 'text'}</div>
                     <div class="prompt-labels">
                         ${(p.labels || []).map(l => `<span class="label-tag ${l === 'production' ? 'production' : ''}">${escapeHtml(l)}</span>`).join('')}
                     </div>
-                </div>
-            `).join('');
+                </div>`;
+            }).join('');
         }
 
         async function selectPrompt(name) {
@@ -4840,11 +5117,20 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
             document.getElementById('logs-container').innerHTML = '';
             document.getElementById('candidates-list').innerHTML = '';
 
+            // Show evolution overlay (wizard mode)
+            showEvolutionOverlay();
+            document.getElementById('pe-overlay-logs').innerHTML = '<div class="log-entry">Starting evolution...</div>';
+            document.getElementById('pe-overlay-original').textContent = '—';
+            document.getElementById('pe-overlay-best').textContent = '—';
+            document.getElementById('pe-overlay-chip').style.display = 'none';
+            document.getElementById('pe-overlay-progress').style.width = '0%';
+            document.getElementById('pe-overlay-iteration').textContent = 'Iteration — / —';
+
             // Reset improvement display
-            document.getElementById('stat-improvement').textContent = '-';
+            document.getElementById('stat-improvement').textContent = '—';
             document.getElementById('stat-improvement').style.color = '#2ecc71';
             document.getElementById('score-detail').style.display = 'none';
-            document.getElementById('stat-score').textContent = '0';
+            document.getElementById('stat-score').textContent = '—';
 
             // Store seed prompt and sample data for comparison/restoration
             currentSeedPrompt = config.seed_prompt;
@@ -4943,6 +5229,9 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
 
             container.appendChild(entry);
             container.scrollTop = container.scrollHeight;
+
+            // Mirror to overlay
+            addOverlayLog(message);
         }
 
         let currentMaxIterations = 10;
@@ -4961,7 +5250,7 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
 
             const displayIteration = Math.min(status.current_iteration, maxIterations);
             document.getElementById('stat-iteration').innerHTML = `${displayIteration}/<span id="stat-max-iterations">${maxIterations}</span>`;
-            document.getElementById('stat-score').textContent = status.best_score ? status.best_score.toFixed(1) : '0';
+            document.getElementById('stat-score').textContent = status.best_score ? status.best_score.toFixed(1) : '—';
 
             // Display improvement
             if (status.initial_score !== null && status.initial_score !== undefined) {
@@ -4984,6 +5273,14 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
                 document.getElementById('initial-score').textContent = status.initial_score.toFixed(1);
                 document.getElementById('best-score-display').textContent = status.best_score.toFixed(1);
             }
+
+            // Mirror progress to overlay
+            mirrorToOverlay({
+                iteration: status.current_iteration,
+                max_iterations: maxIterations,
+                best_score: status.best_score,
+                initial_score: status.initial_score
+            });
 
             if (status.best_candidate) {
                 const bestPromptEl = document.getElementById('best-prompt');
@@ -5234,6 +5531,8 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
         function resetUI() {
             document.getElementById('start-btn').style.display = 'block';
             document.getElementById('stop-btn').style.display = 'none';
+            // Hide evolution overlay and restore wizard
+            hideEvolutionOverlay();
         }
 
         function clearImageGallery() {
@@ -5644,6 +5943,16 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
         }
 
         setupAutoSave();
+
+        // Hide right panel on initial load (Setup tab is full-width wizard)
+        (function() {
+            const rp = document.getElementById('right-panel');
+            const rh = document.getElementById('resize-handle');
+            const cp = document.querySelector('.center-panel');
+            if (rp) rp.style.display = 'none';
+            if (rh) rh.style.display = 'none';
+            if (cp) cp.style.gridColumn = '2 / -1';
+        })();
 
         // Save sample data on page unload
         window.addEventListener('beforeunload', () => {
