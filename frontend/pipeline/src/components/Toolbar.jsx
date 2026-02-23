@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useReactFlow } from '@xyflow/react';
 
 function getAuthToken() {
   return localStorage.getItem('authToken');
 }
 
 export default function Toolbar({ pipeline, onRun, onEvolve, isRunning }) {
+  const { fitView } = useReactFlow();
   const [savedPipelines, setSavedPipelines] = useState([]);
   const [saving, setSaving] = useState(false);
   const [saveLabel, setSaveLabel] = useState('Save');
@@ -108,7 +110,10 @@ export default function Toolbar({ pipeline, onRun, onEvolve, isRunning }) {
         placeholder="Pipeline name"
       />
 
-      <button className="pl-btn pl-btn-secondary" onClick={pipeline.addNode}>
+      <button className="pl-btn pl-btn-secondary" onClick={() => {
+        pipeline.addNode();
+        setTimeout(() => fitView({ padding: 0.2, duration: 300 }), 50);
+      }}>
         + Add Node
       </button>
 

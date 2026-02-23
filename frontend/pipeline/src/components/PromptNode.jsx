@@ -2,13 +2,9 @@ import React, { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 
 function PromptNode({ data, selected }) {
-  const hasInputs = data.inputVariables && data.inputVariables.length > 0;
-
   return (
     <div className={`prompt-node ${selected ? 'selected' : ''} ${data.evolving ? 'evolving' : ''}`}>
-      {hasInputs && (
-        <Handle type="target" position={Position.Left} className="node-handle handle-input" />
-      )}
+      <Handle type="target" position={Position.Left} className="node-handle handle-input" />
 
       <div className="prompt-node-header">
         <span className="prompt-node-label">{data.label || 'Untitled Node'}</span>
@@ -21,7 +17,7 @@ function PromptNode({ data, selected }) {
             {data.promptTemplate.length > 60 ? '...' : ''}
           </span>
         ) : (
-          <span className="prompt-node-empty">Click to add prompt</span>
+          <span className="prompt-node-empty">No prompt yet</span>
         )}
       </div>
 

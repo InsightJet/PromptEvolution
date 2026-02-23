@@ -61,6 +61,7 @@ export default function App() {
         <div className="pl-workspace">
           <NodeEditor
             node={pipeline.selectedNode}
+            allNodes={pipeline.nodes}
             onUpdate={pipeline.updateNode}
             onDelete={pipeline.deleteSelectedNode}
           />

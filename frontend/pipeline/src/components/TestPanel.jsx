@@ -1,7 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
+
+function getAuthToken() {
+  return localStorage.getItem('authToken');
+}
 
 export default function TestPanel({ pipeline, executionResult }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [generating, setGenerating] = useState(false);
 
   // Compute pipeline inputs (variables not produced by any node)
   const pipelineInputVars = (() => {
@@ -26,6 +31,50 @@ export default function TestPanel({ pipeline, executionResult }) {
   const removeTestInput = (index) => {
     pipeline.setTestInputs(pipeline.testInputs.filter((_, i) => i !== index));
   };
+
+  const generateJudgePrompt = useCallback(async () => {
+    if (pipeline.nodes.length === 0) {
+      alert('Add at least one node with a prompt first');
+      return;
+    }
+    if (!pipeline.taskModel.api_key) {
+      alert('Please configure a task model with an API key first');
+      return;
+    }
+
+    const pipelineSummary = pipeline.nodes
+      .map((n) => {
+        const label = n.data.label || 'Untitled';
+        const prompt = n.data.promptTemplate || '(empty)';
+        return `[${label}]: ${prompt}`;
+      })
+      .join('\n\n');
+
+    const seedPrompt = `This is a multi-step prompt pipeline with ${pipeline.nodes.length} nodes:\n\n${pipelineSummary}`;
+
+    setGenerating(true);
+    try {
+      const headers = {
+        'Content-Type': 'application/json',
+        ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}),
+      };
+      const res = await fetch('/api/generate-judge', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          seed_prompt: seedPrompt,
+          additional_instructions: 'This evaluates the final output of a multi-step pipeline. Judge the overall quality, coherence, and completeness of the final result.',
+          model: pipeline.taskModel,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Generation failed');
+      pipeline.setJudgePrompt(data.judge_prompt);
+    } catch (err) {
+      alert('Failed to generate judge prompt: ' + err.message);
+    }
+    setGenerating(false);
+  }, [pipeline]);
 
   return (
     <div className={`pl-test-panel ${collapsed ? 'collapsed' : ''}`}>
@@ -102,13 +151,22 @@ export default function TestPanel({ pipeline, executionResult }) {
 
           {/* Judge Prompt */}
           <div className="pl-form-group">
-            <label className="pl-label">Judge Prompt</label>
+            <div className="pl-judge-header">
+              <label className="pl-label">Judge Prompt</label>
+              <button
+                className="pl-btn pl-btn-sm pl-btn-secondary"
+                onClick={generateJudgePrompt}
+                disabled={generating}
+              >
+                {generating ? 'Generating...' : 'Generate'}
+              </button>
+            </div>
             <textarea
-              className="pl-textarea pl-textarea-sm"
+              className="pl-textarea"
               value={pipeline.judgePrompt}
               onChange={(e) => pipeline.setJudgePrompt(e.target.value)}
               placeholder="How to evaluate the final pipeline output...&#10;&#10;End with:&#10;SCORE: [0-100]&#10;FEEDBACK: [details]"
-              rows={3}
+              rows={6}
             />
           </div>
 

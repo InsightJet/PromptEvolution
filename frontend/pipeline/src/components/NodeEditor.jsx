@@ -1,6 +1,44 @@
-import React from 'react';
+import React, { useRef, useEffect, useMemo, useCallback } from 'react';
 
-export default function NodeEditor({ node, onUpdate, onDelete }) {
+export default function NodeEditor({ node, allNodes, onUpdate, onDelete }) {
+  const textareaRef = useRef(null);
+
+  useEffect(() => {
+    if (node && textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [node?.id]);
+
+  // Compute available variables from OTHER nodes' outputs
+  const availableVars = useMemo(() => {
+    if (!node || !allNodes) return [];
+    return allNodes
+      .filter((n) => n.id !== node.id && n.data.outputVariable)
+      .map((n) => ({
+        nodeId: n.id,
+        label: n.data.label || n.id,
+        variable: n.data.outputVariable,
+      }));
+  }, [node?.id, allNodes]);
+
+  // Insert variable at cursor position in textarea
+  const insertVariable = useCallback((varName) => {
+    if (!textareaRef.current || !node) return;
+    const ta = textareaRef.current;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const text = ta.value;
+    const insertion = `{{${varName}}}`;
+    const newText = text.substring(0, start) + insertion + text.substring(end);
+    onUpdate(node.id, { promptTemplate: newText });
+
+    // Restore cursor after insertion
+    setTimeout(() => {
+      ta.focus();
+      ta.selectionStart = ta.selectionEnd = start + insertion.length;
+    }, 0);
+  }, [node, onUpdate]);
+
   if (!node) {
     return (
       <div className="pl-node-panel">
@@ -14,9 +52,15 @@ export default function NodeEditor({ node, onUpdate, onDelete }) {
 
   const { data } = node;
 
+  // Check which available vars are already used in the template
+  const usedVars = new Set(data.inputVariables || []);
+
   return (
-    <div className="pl-node-panel">
-      <h4 className="pl-panel-title">Node Settings</h4>
+    <div className="pl-node-panel pl-node-panel-active">
+      <div className="pl-editor-node-indicator">
+        <span className="pl-editor-node-dot" />
+        <span className="pl-editor-node-name">{data.label || 'Untitled Node'}</span>
+      </div>
 
       <div className="pl-form-group">
         <label className="pl-label">Label</label>
@@ -29,29 +73,69 @@ export default function NodeEditor({ node, onUpdate, onDelete }) {
         />
       </div>
 
+      {/* Available Variables from other nodes */}
+      {availableVars.length > 0 && (
+        <div className="pl-form-group">
+          <label className="pl-label">
+            Available Variables
+            <span className="pl-hint-inline">click to insert</span>
+          </label>
+          <div className="pl-available-vars">
+            {availableVars.map((av) => (
+              <button
+                key={av.nodeId}
+                className={`pl-available-var ${usedVars.has(av.variable) ? 'used' : ''}`}
+                onClick={() => insertVariable(av.variable)}
+                title={`From "${av.label}" — click to insert {{${av.variable}}}`}
+              >
+                <span className="pl-av-name">{`{{${av.variable}}}`}</span>
+                <span className="pl-av-source">{av.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="pl-form-group">
         <label className="pl-label">Prompt Template</label>
         <textarea
+          ref={textareaRef}
           className="pl-textarea"
           value={data.promptTemplate}
           onChange={(e) => onUpdate(node.id, { promptTemplate: e.target.value })}
-          placeholder={'Use {{variable}} for inputs from other nodes\n\nExample:\nReview these images:\n{{image_descriptions}}\n\nProvide feedback on quality...'}
+          placeholder={availableVars.length > 0
+            ? 'Click an available variable above to insert it, or type {{variable_name}} manually'
+            : 'Type your prompt here.\nThis is the first node — its output feeds into downstream nodes.'}
           rows={8}
         />
       </div>
 
       <div className="pl-form-group">
         <label className="pl-label">
-          Input Variables
+          Mapped Inputs
           <span className="pl-hint-inline">auto-detected from template</span>
         </label>
         <div className="pl-var-list">
           {data.inputVariables && data.inputVariables.length > 0 ? (
-            data.inputVariables.map((v) => (
-              <span key={v} className="pl-var-badge input">
-                {`{{${v}}}`}
-              </span>
-            ))
+            data.inputVariables.map((v) => {
+              const source = availableVars.find((av) => av.variable === v);
+              return (
+                <div key={v} className="pl-mapped-var">
+                  <span className="pl-var-badge input">{`{{${v}}}`}</span>
+                  {source ? (
+                    <span className="pl-var-arrow-source">
+                      <span className="pl-var-arrow">&larr;</span>
+                      <span className="pl-var-source-label">{source.label}</span>
+                    </span>
+                  ) : (
+                    <span className="pl-var-arrow-source">
+                      <span className="pl-var-arrow">&larr;</span>
+                      <span className="pl-var-source-label unresolved">pipeline input</span>
+                    </span>
+                  )}
+                </div>
+              );
+            })
           ) : (
             <span className="pl-var-empty">No variables detected</span>
           )}
@@ -68,7 +152,7 @@ export default function NodeEditor({ node, onUpdate, onDelete }) {
           placeholder="e.g., entities, summary, final_output"
         />
         <span className="pl-hint-text">
-          Other nodes can use this as {`{{${data.outputVariable || 'variable_name'}}}`}
+          Other nodes can reference this as {`{{${data.outputVariable || 'variable_name'}}}`}
         </span>
       </div>
 
