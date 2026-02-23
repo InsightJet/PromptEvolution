@@ -453,6 +453,99 @@ class TraceEvolutionSession(Base):
         }
 
 
+class PipelineDefinition(Base):
+    """Saved pipeline definitions (DAG of prompt nodes)."""
+    __tablename__ = "pipeline_definitions"
+
+    id = Column(String(36), primary_key=True)  # UUID
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, default="")
+
+    # Full pipeline structure: nodes, edges, pipeline_inputs, pipeline_output
+    pipeline_json = Column(JSON, nullable=False)
+
+    # Separate for easy updates
+    judge_prompt = Column(Text, default="")
+    test_inputs = Column(JSON, default=list)  # Array of dicts
+
+    # Model configs
+    task_model_config = Column(JSON)
+    judge_model_config = Column(JSON)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "pipeline_json": self.pipeline_json,
+            "judge_prompt": self.judge_prompt,
+            "test_inputs": self.test_inputs,
+            "task_model_config": self.task_model_config,
+            "judge_model_config": self.judge_model_config,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class PipelineEvolutionSession(Base):
+    """Pipeline evolution session tracking."""
+    __tablename__ = "pipeline_evolution_sessions"
+
+    id = Column(String(36), primary_key=True)  # UUID
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    pipeline_id = Column(String(36), ForeignKey("pipeline_definitions.id"), nullable=False)
+
+    status = Column(String(20), default="pending")  # pending/running/completed/error/stopped
+
+    # Model configs
+    task_model_config = Column(JSON)
+    judge_model_config = Column(JSON)
+    max_iterations = Column(Integer, default=5)
+    max_rounds = Column(Integer, default=3)
+
+    # Pipeline snapshots
+    original_pipeline_json = Column(JSON)
+    evolved_pipeline_json = Column(JSON)
+
+    # Scores
+    initial_score = Column(Float)
+    best_score = Column(Float)
+
+    # Per-node evolution history
+    node_evolution_log = Column(JSON, default=list)
+
+    # Intermediate outputs for debugging
+    intermediate_outputs = Column(JSON)
+
+    logs = Column(JSON, default=list)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime)
+
+    user = relationship("User")
+    pipeline = relationship("PipelineDefinition")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "pipeline_id": self.pipeline_id,
+            "status": self.status,
+            "initial_score": self.initial_score,
+            "best_score": self.best_score,
+            "node_evolution_log": self.node_evolution_log,
+            "original_pipeline_json": self.original_pipeline_json,
+            "evolved_pipeline_json": self.evolved_pipeline_json,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+        }
+
+
 # ==================== DATABASE UTILITIES ====================
 
 def init_db():
@@ -503,6 +596,15 @@ def _run_migrations():
     if 'trace_evolution_sessions' not in tables:
         TraceEvolutionSession.__table__.create(bind=engine)
         print("[Migration] Created trace_evolution_sessions table")
+
+    # Create pipeline tables if not exists
+    if 'pipeline_definitions' not in tables:
+        PipelineDefinition.__table__.create(bind=engine)
+        print("[Migration] Created pipeline_definitions table")
+
+    if 'pipeline_evolution_sessions' not in tables:
+        PipelineEvolutionSession.__table__.create(bind=engine)
+        print("[Migration] Created pipeline_evolution_sessions table")
 
 
 def get_db():

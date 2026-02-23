@@ -975,6 +975,7 @@
         .iteration-card.best { border: 1px solid rgba(46,204,113,0.3); }
         .iteration-card.best .iter-num { background: #2ecc71; color: #fff; }
     </style>
+    <link rel="stylesheet" href="/static/pipeline/pipeline-builder.css">
 </head>
 <body>
     <div class="app-container">
@@ -1165,6 +1166,7 @@
             <div class="tabs" id="main-tabs" style="margin-bottom:15px;">
                 <button class="tab-btn active" onclick="switchMainTab('setup')">Prompt Evolution</button>
                 <button class="tab-btn" onclick="switchMainTab('calibration')">Conversation Evolution</button>
+                <button class="tab-btn" onclick="switchMainTab('pipeline')">Pipeline Evolution</button>
             </div>
 
             <!-- Setup Tab -->
@@ -1826,6 +1828,11 @@ FEEDBACK: [detailed feedback]</textarea>
 
             </div><!-- ce-container -->
             </div><!-- End Conversation Evolution Tab -->
+
+            <!-- Pipeline Evolution Tab -->
+            <div class="main-tab-content" id="main-tab-pipeline" style="display:none;">
+                <div id="pipeline-root" style="width:100%;height:calc(100vh - 120px);position:relative;"></div>
+            </div><!-- End Pipeline Evolution Tab -->
 
         </div>
 
@@ -3157,6 +3164,11 @@ FEEDBACK: [detailed feedback]</textarea>
             } else {
                 leftPanel.style.display = 'none';
                 centerPanel.style.gridColumn = '1 / -1';
+            }
+
+            // Mount React pipeline builder when switching to pipeline tab
+            if (tabName === 'pipeline' && window.__mountPipelineBuilder) {
+                window.__mountPipelineBuilder();
             }
         }
 
@@ -5989,5 +6001,6 @@ This is for a CONVERSATION EVALUATION judge. The criteria should evaluate multi-
             }
         }, 500);
     </script>
+    <script type="module" src="/static/pipeline/pipeline-builder.js"></script>
 </body>
 </html>

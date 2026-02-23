@@ -9,3 +9,9 @@ pydantic
 sse-starlette
 httpx
 replicate
+sqlalchemy
+python-jose[cryptography]
+bcrypt
+cryptography
+python-dotenv
+email-validator

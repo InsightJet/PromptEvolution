@@ -25,6 +25,7 @@ load_dotenv()
 # Database and Auth imports
 from .database import (
     init_db, get_db, User, UserSettings, EvolutionSessionDB, SavedPrompt,
+    PipelineDefinition, PipelineEvolutionSession,
     get_user_settings, get_user_by_id
 )
 from .auth import (
@@ -4292,7 +4293,674 @@ async def get_iteration_conversations(
     }
 
 
+# ===== PIPELINE EVOLUTION =====
+
+# In-memory pipeline evolution sessions
+pipeline_evolution_sessions = {}
+
+
+class PipelineNodeModel(BaseModel):
+    id: str
+    label: str
+    prompt_template: str
+    input_variables: list[str] = []
+    output_variable: str
+    position: dict = {"x": 0, "y": 0}
+
+
+class PipelineEdgeModel(BaseModel):
+    from_node: str
+    from_var: str
+    to_node: str
+    to_var: str
+
+
+class PipelineModel(BaseModel):
+    name: str
+    description: Optional[str] = ""
+    nodes: list[PipelineNodeModel]
+    edges: list[PipelineEdgeModel]
+    pipeline_inputs: list[str] = []
+    pipeline_output: str = ""
+    judge_prompt: Optional[str] = ""
+    test_inputs: Optional[list[dict]] = []
+    task_model: Optional[ModelConfig] = None
+    judge_model: Optional[ModelConfig] = None
+
+
+class PipelineExecuteRequest(BaseModel):
+    pipeline: PipelineModel
+    test_input: dict
+    task_model: ModelConfig
+
+
+class PipelineEvolutionConfig(BaseModel):
+    pipeline_id: str
+    task_model: ModelConfig
+    judge_model: ModelConfig
+    max_iterations: int = 5
+    max_rounds: int = 3
+
+
+# Pipeline execution engine
+
+def topological_sort_pipeline(nodes: list, edges: list) -> list[str]:
+    """Return node IDs in execution order. Raises on cycles."""
+    from collections import defaultdict, deque
+
+    in_degree = {n["id"] if isinstance(n, dict) else n.id: 0 for n in nodes}
+    adjacency = defaultdict(list)
+
+    for edge in edges:
+        from_n = edge["from_node"] if isinstance(edge, dict) else edge.from_node
+        to_n = edge["to_node"] if isinstance(edge, dict) else edge.to_node
+        adjacency[from_n].append(to_n)
+        in_degree[to_n] = in_degree.get(to_n, 0) + 1
+
+    queue = deque([nid for nid, deg in in_degree.items() if deg == 0])
+    order = []
+
+    while queue:
+        nid = queue.popleft()
+        order.append(nid)
+        for neighbor in adjacency[nid]:
+            in_degree[neighbor] -= 1
+            if in_degree[neighbor] == 0:
+                queue.append(neighbor)
+
+    if len(order) != len(nodes):
+        raise ValueError("Pipeline contains a cycle")
+
+    return order
+
+
+def fill_pipeline_template(template: str, variables: dict) -> str:
+    """Fill {{variable}} placeholders from a dict."""
+    filled = template
+    for var_name, value in variables.items():
+        if isinstance(value, (dict, list)):
+            value_str = json.dumps(value, indent=2)
+        else:
+            value_str = str(value)
+        filled = filled.replace('{{' + var_name + '}}', value_str)
+    return filled
+
+
+def execute_pipeline_sync(pipeline: dict, test_input: dict, task_model_config: ModelConfig, log_fn=None) -> dict:
+    """Execute a pipeline end-to-end for a single test input.
+
+    Returns: {final_output, intermediate_outputs: {node_id: output}, execution_order}
+    """
+    nodes = pipeline.get("nodes", [])
+    edges = pipeline.get("edges", [])
+    nodes_by_id = {n["id"]: n for n in nodes}
+    execution_order = topological_sort_pipeline(nodes, edges)
+
+    variables = dict(test_input)
+    intermediate_outputs = {}
+
+    for node_id in execution_order:
+        node = nodes_by_id[node_id]
+        prompt_template = node["prompt_template"]
+
+        # Gather input variables
+        node_input = {}
+        for var_name in node.get("input_variables", []):
+            if var_name in variables:
+                node_input[var_name] = variables[var_name]
+            else:
+                raise ValueError(f"Node '{node_id}' requires variable '{var_name}' which is not available")
+
+        filled_prompt = fill_pipeline_template(prompt_template, node_input)
+
+        if log_fn:
+            log_fn(f"Executing node: {node.get('label', node_id)}", {
+                "node_id": node_id,
+                "prompt_preview": filled_prompt[:200]
+            })
+
+        output = call_llm_sync(task_model_config, filled_prompt)
+
+        variables[node["output_variable"]] = output
+        intermediate_outputs[node_id] = output
+
+        if log_fn:
+            log_fn(f"Node '{node.get('label', node_id)}' completed", {
+                "node_id": node_id,
+                "output_preview": output[:200] if output else ""
+            })
+
+    pipeline_output_var = pipeline.get("pipeline_output", "")
+    final_output = variables.get(pipeline_output_var, "")
+
+    return {
+        "final_output": final_output,
+        "intermediate_outputs": intermediate_outputs,
+        "execution_order": execution_order
+    }
+
+
+def score_pipeline_output(final_output: str, judge_prompt: str, judge_model: ModelConfig, test_input: dict) -> tuple:
+    """Score pipeline final output. Returns (normalized_score_0_to_1, judge_feedback)."""
+    judge_input = f"""Pipeline Input:
+{json.dumps(test_input, indent=2)}
+
+Pipeline Final Output:
+{final_output}
+
+Evaluate the output quality. Respond with:
+SCORE: [0-100]
+FEEDBACK: [your detailed feedback]"""
+
+    judge_response = call_llm_sync(judge_model, judge_prompt, judge_input)
+
+    score = 0.5
+    try:
+        if judge_response:
+            for line in judge_response.split('\n'):
+                if line.strip().upper().startswith('SCORE:'):
+                    score_str = line.split(':')[1].strip()
+                    raw_score = float(score_str.replace('%', ''))
+                    score = max(0, min(1, raw_score / 100.0))
+                    break
+    except Exception:
+        pass
+
+    return score, judge_response
+
+
+# Pipeline CRUD endpoints
+
+@app.post("/api/pipeline/save")
+async def save_pipeline(
+    pipeline: PipelineModel,
+    pipeline_id: Optional[str] = None,
+    current_user: User = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    user_id = current_user.id if current_user else 0
+
+    pipeline_data = pipeline.model_dump()
+
+    if pipeline_id:
+        existing = db.query(PipelineDefinition).filter(
+            PipelineDefinition.id == pipeline_id,
+            PipelineDefinition.user_id == user_id
+        ).first()
+        if not existing:
+            raise HTTPException(404, "Pipeline not found")
+        existing.name = pipeline.name
+        existing.description = pipeline.description
+        existing.pipeline_json = pipeline_data
+        existing.judge_prompt = pipeline.judge_prompt
+        existing.test_inputs = pipeline.test_inputs
+        existing.task_model_config = pipeline.task_model.model_dump() if pipeline.task_model else None
+        existing.judge_model_config = pipeline.judge_model.model_dump() if pipeline.judge_model else None
+        db.commit()
+        return {"id": existing.id, "status": "updated"}
+
+    new_id = str(uuid.uuid4())
+    new_pipeline = PipelineDefinition(
+        id=new_id,
+        user_id=user_id,
+        name=pipeline.name,
+        description=pipeline.description,
+        pipeline_json=pipeline_data,
+        judge_prompt=pipeline.judge_prompt,
+        test_inputs=pipeline.test_inputs,
+        task_model_config=pipeline.task_model.model_dump() if pipeline.task_model else None,
+        judge_model_config=pipeline.judge_model.model_dump() if pipeline.judge_model else None,
+    )
+    db.add(new_pipeline)
+    db.commit()
+    return {"id": new_id, "status": "created"}
+
+
+@app.get("/api/pipeline/list")
+async def list_pipelines(
+    current_user: User = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    user_id = current_user.id if current_user else 0
+    pipelines = db.query(PipelineDefinition).filter(
+        PipelineDefinition.user_id == user_id
+    ).order_by(PipelineDefinition.updated_at.desc()).all()
+    return {"pipelines": [p.to_dict() for p in pipelines]}
+
+
+@app.get("/api/pipeline/{pipeline_id}")
+async def get_pipeline(
+    pipeline_id: str,
+    current_user: User = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    user_id = current_user.id if current_user else 0
+    pipeline = db.query(PipelineDefinition).filter(
+        PipelineDefinition.id == pipeline_id,
+        PipelineDefinition.user_id == user_id
+    ).first()
+    if not pipeline:
+        raise HTTPException(404, "Pipeline not found")
+    return pipeline.to_dict()
+
+
+@app.delete("/api/pipeline/{pipeline_id}")
+async def delete_pipeline(
+    pipeline_id: str,
+    current_user: User = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    user_id = current_user.id if current_user else 0
+    pipeline = db.query(PipelineDefinition).filter(
+        PipelineDefinition.id == pipeline_id,
+        PipelineDefinition.user_id == user_id
+    ).first()
+    if not pipeline:
+        raise HTTPException(404, "Pipeline not found")
+    db.delete(pipeline)
+    db.commit()
+    return {"status": "deleted"}
+
+
+@app.post("/api/pipeline/execute")
+async def execute_pipeline_endpoint(
+    request: PipelineExecuteRequest,
+    current_user: User = Depends(get_current_user_optional)
+):
+    """Execute a pipeline once with a single test input (for testing)."""
+    try:
+        pipeline_data = request.pipeline.model_dump()
+        result = execute_pipeline_sync(
+            pipeline_data, request.test_input, request.task_model
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(500, detail=str(e))
+
+
+# Pipeline evolution
+
+class PipelineEvolutionSessionState:
+    def __init__(self, pipeline_json):
+        self.id = str(uuid.uuid4())
+        self.status = "pending"
+        self.is_running = False
+        self.initial_score = None
+        self.best_score = 0
+        self.evolved_pipeline = None
+        self.node_evolution_log = []
+        self.logs = []
+        self.current_round = 0
+        self.current_node_evolving = None
+        self.original_pipeline = pipeline_json
+
+    def log(self, message, data=None):
+        entry = {"message": message, "data": data or {}}
+        self.logs.append(entry)
+
+
+def attribute_weakest_node(pipeline, test_input, intermediate_outputs, final_output, judge_feedback, judge_model):
+    """Use LLM to identify which node is the bottleneck."""
+    import re
+
+    nodes_description = ""
+    for node in pipeline.get("nodes", []):
+        nid = node["id"]
+        output = intermediate_outputs.get(nid, "(no output)")
+        nodes_description += f"\n--- Node: {node.get('label', nid)} (id: {nid}) ---\n"
+        nodes_description += f"Prompt: {node['prompt_template'][:300]}\n"
+        nodes_description += f"Output: {str(output)[:500]}\n"
+
+    attribution_prompt = f"""You are analyzing a multi-step LLM pipeline to identify the weakest step.
+
+Pipeline input: {json.dumps(test_input)[:500]}
+
+Pipeline nodes and their outputs:{nodes_description}
+
+Judge evaluation of final output:
+{judge_feedback[:500]}
+
+Which single node is most responsible for quality issues? Consider:
+1. Which node's output has the most errors or quality issues?
+2. Which node's problems propagate downstream?
+3. Which node, if improved, would have the biggest impact?
+
+Respond with ONLY the node ID (e.g., "node_2"). Nothing else."""
+
+    response = call_llm_sync(judge_model, attribution_prompt)
+
+    match = re.search(r'node_\w+', response.strip())
+    if match:
+        node_ids = [n["id"] for n in pipeline.get("nodes", [])]
+        if match.group(0) in node_ids:
+            return match.group(0)
+
+    return pipeline["nodes"][0]["id"]
+
+
+def run_pipeline_evolution(session, config, pipeline_json, task_model, judge_model):
+    """Run pipeline evolution in a background thread."""
+    import copy
+
+    session.status = "running"
+    session.is_running = True
+
+    try:
+        current_pipeline = copy.deepcopy(pipeline_json)
+        test_inputs = pipeline_json.get("test_inputs", [])
+        judge_prompt = pipeline_json.get("judge_prompt", "")
+
+        if not test_inputs:
+            session.log("Error: No test inputs provided")
+            session.status = "error"
+            return
+
+        if not judge_prompt:
+            session.log("Error: No judge prompt provided")
+            session.status = "error"
+            return
+
+        # Baseline evaluation
+        session.log("Running baseline pipeline evaluation...")
+        baseline_scores = []
+        baseline_intermediates = {}
+        baseline_feedback = ""
+
+        for i, test_input in enumerate(test_inputs):
+            try:
+                result = execute_pipeline_sync(
+                    current_pipeline, test_input, task_model,
+                    log_fn=lambda msg, data: session.log(msg, data)
+                )
+                score, feedback = score_pipeline_output(
+                    result["final_output"], judge_prompt, judge_model, test_input
+                )
+                baseline_scores.append(score)
+                baseline_intermediates[f"test_{i}"] = result["intermediate_outputs"]
+                baseline_feedback = feedback
+            except Exception as e:
+                session.log(f"Baseline evaluation error on test {i}: {str(e)}")
+                baseline_scores.append(0)
+
+        baseline_avg = sum(baseline_scores) / len(baseline_scores) if baseline_scores else 0
+        session.initial_score = round(baseline_avg * 100, 1)
+        session.best_score = session.initial_score
+        session.log(f"Baseline pipeline score: {session.initial_score}", {
+            "initial_score": session.initial_score,
+            "best_score": session.best_score
+        })
+
+        # Attribution-guided evolution rounds
+        for round_num in range(config.max_rounds):
+            if not session.is_running:
+                break
+
+            session.current_round = round_num + 1
+            session.log(f"=== Evolution Round {round_num + 1} / {config.max_rounds} ===")
+
+            # Run pipeline on first test input for attribution
+            result = execute_pipeline_sync(
+                current_pipeline, test_inputs[0], task_model
+            )
+            score, feedback = score_pipeline_output(
+                result["final_output"], judge_prompt, judge_model, test_inputs[0]
+            )
+
+            # Attribute weakest node
+            session.log("Identifying weakest pipeline node...")
+            weakest_node_id = attribute_weakest_node(
+                current_pipeline, test_inputs[0],
+                result["intermediate_outputs"],
+                result["final_output"],
+                feedback, judge_model
+            )
+
+            target_node = next((n for n in current_pipeline["nodes"] if n["id"] == weakest_node_id), None)
+            if not target_node:
+                session.log(f"Could not find node {weakest_node_id}, skipping round")
+                continue
+
+            session.current_node_evolving = weakest_node_id
+            session.log(f"Evolving node: {target_node.get('label', weakest_node_id)}", {
+                "node_id": weakest_node_id,
+                "current_node_evolving": weakest_node_id
+            })
+
+            # Build GEPA trainset
+            trainset = [
+                TestInput(input_text=json.dumps(ti), id=i)
+                for i, ti in enumerate(test_inputs)
+            ]
+
+            # Create pipeline-aware adapter
+            class PipelineNodeAdapter(GEPAAdapter):
+                def evaluate(self_adapter, batch, candidate, capture_traces=False):
+                    import copy as cp
+                    modified = cp.deepcopy(current_pipeline)
+                    for node in modified["nodes"]:
+                        if node["id"] == weakest_node_id:
+                            node["prompt_template"] = candidate.get("system_prompt", "")
+                            break
+
+                    scores = []
+                    outputs = []
+                    trajectories = [] if capture_traces else None
+
+                    for item in batch:
+                        ti = json.loads(item.input_text) if isinstance(item.input_text, str) else item.input_text
+                        try:
+                            res = execute_pipeline_sync(modified, ti, task_model)
+                            s, fb = score_pipeline_output(res["final_output"], judge_prompt, judge_model, ti)
+                            scores.append(s)
+                            outputs.append(res["final_output"])
+                            if capture_traces:
+                                trajectories.append(Trajectory(
+                                    input_text=json.dumps(ti), output_text=res["final_output"],
+                                    judge_feedback=fb, score=s
+                                ))
+                        except Exception as e:
+                            session.log(f"Eval error: {str(e)}")
+                            scores.append(0.0)
+                            outputs.append("")
+                            if capture_traces:
+                                trajectories.append(Trajectory(
+                                    input_text=json.dumps(ti), output_text="", judge_feedback=str(e), score=0.0
+                                ))
+
+                    return EvaluationBatch(outputs=outputs, scores=scores, trajectories=trajectories)
+
+                def make_reflective_dataset(self_adapter, candidate, evaluation_batch, components_to_update):
+                    reflective_data = {}
+                    for component in components_to_update:
+                        examples = []
+                        if evaluation_batch.trajectories:
+                            for traj in evaluation_batch.trajectories:
+                                examples.append({
+                                    "input": traj.input_text, "output": traj.output_text,
+                                    "feedback": traj.judge_feedback, "score": traj.score
+                                })
+                        reflective_data[component] = examples
+                    return reflective_data
+
+            adapter = PipelineNodeAdapter()
+            seed_candidate = {"system_prompt": target_node["prompt_template"]}
+            seed_prompt_backup = target_node["prompt_template"]
+
+            reflection_lm = get_litellm_model_string(judge_model)
+            os.environ[f"{judge_model.provider.upper()}_API_KEY"] = judge_model.api_key
+
+            budget = config.max_iterations * len(trainset) * 2
+
+            try:
+                gepa_result = gepa.optimize(
+                    seed_candidate=seed_candidate,
+                    trainset=trainset,
+                    valset=trainset,
+                    adapter=adapter,
+                    reflection_lm=reflection_lm,
+                    max_metric_calls=budget,
+                    skip_perfect_score=False,
+                    perfect_score=1.0,
+                    display_progress_bar=False,
+                    seed=42 + round_num
+                )
+
+                best_idx = gepa_result.best_idx
+                evolved_prompt = gepa_result.best_candidate.get("system_prompt", seed_prompt_backup)
+                evolved_score = gepa_result.val_aggregate_scores[best_idx] if gepa_result.val_aggregate_scores else 0
+
+                # Update pipeline
+                for node in current_pipeline["nodes"]:
+                    if node["id"] == weakest_node_id:
+                        node["prompt_template"] = evolved_prompt
+                        break
+
+                new_score = round(evolved_score * 100, 1)
+                session.node_evolution_log.append({
+                    "node_id": weakest_node_id,
+                    "node_label": target_node.get("label", weakest_node_id),
+                    "round": round_num + 1,
+                    "old_prompt": seed_prompt_backup,
+                    "new_prompt": evolved_prompt,
+                    "pipeline_score_after": new_score
+                })
+
+                if new_score > session.best_score:
+                    session.best_score = new_score
+                    session.evolved_pipeline = copy.deepcopy(current_pipeline)
+
+                session.log(f"Node '{target_node.get('label')}' evolved. Pipeline score: {new_score}", {
+                    "best_score": session.best_score,
+                    "node_id": weakest_node_id
+                })
+
+            except Exception as e:
+                session.log(f"GEPA error for node {weakest_node_id}: {str(e)}")
+                continue
+
+        session.current_node_evolving = None
+        if session.evolved_pipeline is None:
+            session.evolved_pipeline = current_pipeline
+        session.status = "completed"
+        session.log("Pipeline evolution complete!", {
+            "initial_score": session.initial_score,
+            "best_score": session.best_score,
+            "improvement": round(session.best_score - session.initial_score, 1),
+            "status": "completed"
+        })
+
+    except Exception as e:
+        session.status = "error"
+        session.log(f"Pipeline evolution error: {str(e)}")
+        import traceback
+        session.log(f"Traceback: {traceback.format_exc()}")
+
+
+@app.post("/api/pipeline/evolution/start")
+async def start_pipeline_evolution(
+    config: PipelineEvolutionConfig,
+    current_user: User = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    user_id = current_user.id if current_user else 0
+
+    pipeline_def = db.query(PipelineDefinition).filter(
+        PipelineDefinition.id == config.pipeline_id,
+        PipelineDefinition.user_id == user_id
+    ).first()
+    if not pipeline_def:
+        raise HTTPException(404, "Pipeline not found")
+
+    pipeline_json = pipeline_def.pipeline_json
+    pipeline_json["judge_prompt"] = pipeline_def.judge_prompt
+    pipeline_json["test_inputs"] = pipeline_def.test_inputs
+
+    session = PipelineEvolutionSessionState(pipeline_json)
+    session_key = f"{user_id}_{session.id}"
+    pipeline_evolution_sessions[session_key] = session
+
+    thread = threading.Thread(
+        target=run_pipeline_evolution,
+        args=(session, config, pipeline_json, config.task_model, config.judge_model)
+    )
+    thread.start()
+
+    return {"session_id": session.id}
+
+
+@app.get("/api/pipeline/evolution/{session_id}/stream")
+async def stream_pipeline_evolution(session_id: str, token: str = None):
+    """SSE stream for pipeline evolution progress."""
+    session = None
+    for key, s in pipeline_evolution_sessions.items():
+        if s.id == session_id:
+            session = s
+            break
+
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    async def event_generator():
+        last_log_idx = 0
+        while True:
+            # Stream new log entries
+            while last_log_idx < len(session.logs):
+                entry = session.logs[last_log_idx]
+                yield {
+                    "event": "log",
+                    "data": json.dumps(entry)
+                }
+                # Also send status updates if data contains score info
+                if entry.get("data", {}).get("best_score") is not None or entry.get("data", {}).get("status"):
+                    yield {
+                        "event": "status",
+                        "data": json.dumps({
+                            "status": session.status,
+                            "initial_score": session.initial_score,
+                            "best_score": session.best_score,
+                            "current_round": session.current_round,
+                            "current_node_evolving": session.current_node_evolving,
+                            "node_evolution_log": session.node_evolution_log,
+                            "evolved_pipeline": session.evolved_pipeline,
+                        })
+                    }
+                last_log_idx += 1
+
+            if session.status in ("completed", "error", "stopped"):
+                # Send final status
+                yield {
+                    "event": "status",
+                    "data": json.dumps({
+                        "status": session.status,
+                        "initial_score": session.initial_score,
+                        "best_score": session.best_score,
+                        "current_round": session.current_round,
+                        "node_evolution_log": session.node_evolution_log,
+                        "evolved_pipeline": session.evolved_pipeline,
+                    })
+                }
+                break
+
+            await asyncio.sleep(0.5)
+
+    return EventSourceResponse(event_generator())
+
+
+@app.post("/api/pipeline/evolution/{session_id}/stop")
+async def stop_pipeline_evolution(session_id: str):
+    for key, s in pipeline_evolution_sessions.items():
+        if s.id == session_id:
+            s.is_running = False
+            s.status = "stopped"
+            return {"status": "stopped"}
+    raise HTTPException(404, "Session not found")
+
+
 # Serve static files
+pipeline_dist_dir = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist", "pipeline")
+if os.path.exists(pipeline_dist_dir):
+    app.mount("/static/pipeline", StaticFiles(directory=pipeline_dist_dir), name="pipeline-static")
+
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
 
