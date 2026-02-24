@@ -2,6 +2,9 @@ import React, { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 
 function PromptNode({ data, selected }) {
+  const inputs = data.inputVariables || [];
+  const hasOutput = !!data.outputVariable;
+
   return (
     <div className={`prompt-node ${selected ? 'selected' : ''} ${data.evolving ? 'evolving' : ''}`}>
       <Handle type="target" position={Position.Left} className="node-handle handle-input" />
@@ -9,6 +12,15 @@ function PromptNode({ data, selected }) {
       <div className="prompt-node-header">
         <span className="prompt-node-label">{data.label || 'Untitled Node'}</span>
       </div>
+
+      {/* Input variables flowing in */}
+      {inputs.length > 0 && (
+        <div className="prompt-node-vars-in">
+          {inputs.map((v) => (
+            <span key={v} className="prompt-node-var in">{v} &rarr;</span>
+          ))}
+        </div>
+      )}
 
       <div className="prompt-node-body">
         {data.promptTemplate ? (
@@ -21,13 +33,14 @@ function PromptNode({ data, selected }) {
         )}
       </div>
 
+      {/* Output: LLM response becomes this variable */}
       <div className="prompt-node-footer">
-        {data.outputVariable ? (
-          <span className="prompt-node-output">
-            &rarr; {data.outputVariable}
-          </span>
+        <span className="prompt-node-llm-tag">LLM</span>
+        <span className="prompt-node-flow-icon">&rarr;</span>
+        {hasOutput ? (
+          <span className="prompt-node-var out">{data.outputVariable}</span>
         ) : (
-          <span className="prompt-node-output empty">&rarr; set output var</span>
+          <span className="prompt-node-var out empty">name output</span>
         )}
       </div>
 

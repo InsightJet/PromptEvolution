@@ -205,19 +205,109 @@
   font-style: italic;
 }
 
+/* Input variables displayed on the node */
+.prompt-node-vars-in {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 0 10px 4px;
+}
+
+.prompt-node-var {
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.prompt-node-var.in {
+  background: rgba(0, 212, 255, 0.1);
+  color: #00d4ff;
+}
+
+.prompt-node-var.out {
+  background: rgba(46, 204, 113, 0.1);
+  color: #2ecc71;
+  font-weight: 600;
+}
+
+.prompt-node-var.out.empty {
+  background: rgba(255, 255, 255, 0.04);
+  color: #555;
+  font-weight: 400;
+  font-style: italic;
+}
+
 .prompt-node-footer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   padding: 4px 10px 8px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.prompt-node-output {
-  font-size: 10px;
-  color: #2ecc71;
-  font-family: 'Monaco', 'Menlo', monospace;
+.prompt-node-llm-tag {
+  font-size: 8px;
+  font-weight: 700;
+  color: #7b2cbf;
+  background: rgba(123, 44, 191, 0.12);
+  padding: 1px 4px;
+  border-radius: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
-.prompt-node-output.empty {
+.prompt-node-flow-icon {
+  font-size: 10px;
   color: #555;
+}
+
+/* ---------- Data Flow Diagram in Editor ---------- */
+.pl-flow-diagram {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px;
+  margin-bottom: 14px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+}
+
+.pl-flow-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pl-flow-label {
+  font-size: 10px;
+  color: #888;
+}
+
+.pl-flow-badge {
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.pl-flow-badge.llm {
+  background: rgba(123, 44, 191, 0.15);
+  color: #b86fff;
+}
+
+.pl-flow-badge.out {
+  background: rgba(46, 204, 113, 0.12);
+  color: #2ecc71;
+}
+
+.pl-flow-arrow-down {
+  font-size: 14px;
+  color: #555;
+  line-height: 1;
 }
 
 /* Node handles */

@@ -142,6 +142,19 @@ export default function NodeEditor({ node, allNodes, onUpdate, onDelete }) {
         </div>
       </div>
 
+      {/* Data Flow Diagram */}
+      <div className="pl-flow-diagram">
+        <div className="pl-flow-step">
+          <span className="pl-flow-label">Prompt sent to</span>
+          <span className="pl-flow-badge llm">LLM</span>
+        </div>
+        <div className="pl-flow-arrow-down">&darr;</div>
+        <div className="pl-flow-step">
+          <span className="pl-flow-label">Full response saved as</span>
+          <span className="pl-flow-badge out">{data.outputVariable || '???'}</span>
+        </div>
+      </div>
+
       <div className="pl-form-group">
         <label className="pl-label">Output Variable Name</label>
         <input
@@ -149,10 +162,11 @@ export default function NodeEditor({ node, allNodes, onUpdate, onDelete }) {
           className="pl-input"
           value={data.outputVariable}
           onChange={(e) => onUpdate(node.id, { outputVariable: e.target.value })}
-          placeholder="e.g., entities, summary, final_output"
+          placeholder="e.g., image_descriptions, summary, analysis"
         />
         <span className="pl-hint-text">
-          Other nodes can reference this as {`{{${data.outputVariable || 'variable_name'}}}`}
+          The LLM's entire response is stored as this variable.
+          Other nodes use it via {`{{${data.outputVariable || 'variable_name'}}}`}
         </span>
       </div>
 
