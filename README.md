@@ -1,6 +1,6 @@
 # GEPA Prompt Evolution
 
-Optimize LLM prompts automatically using genetic algorithms and LLM-as-Judge evaluation. GEPA ("Genetic Evolution for Prompt Adaptation") evolves your prompts against real test cases and scores each generation with an LLM judge, so you end up with a prompt that's measurably better than the one you started with — not just one that *looks* better.
+Optimize LLM prompts automatically using genetic algorithms and LLM-as-Judge evaluation. **GEPA** ("Genetic-Pareto") evolves your prompts against real test cases and scores each generation with an LLM judge, so you end up with a prompt that's measurably better than the one you started with — not just one that *looks* better.
 
 ## Features
 
@@ -14,6 +14,48 @@ Optimize LLM prompts automatically using genetic algorithms and LLM-as-Judge eva
 - **Langfuse & LangSmith integration** — pull prompts and traces directly from your observability stack
 - **Multi-provider** — OpenAI, Anthropic, Google, Mistral, Groq, and Replicate, via `litellm`
 - **Multi-user with auth** — JWT-based accounts, per-user encrypted API key storage, admin panel
+
+## How GEPA Works
+
+GEPA (short for **Genetic-Pareto**) is the genetic algorithm underlying the default evolution engine. It's the official implementation of the method from the paper ["GEPA: Reflective Prompt Evolution Can Outperform Reinforcement Learning"](https://arxiv.org/abs/2507.19457) (Agrawal et al., UC Berkeley) — this project uses the [`gepa`](https://github.com/gepa-ai/gepa) library directly against a single system prompt, rather than through its more common DSPy integration.
+
+At a high level, it's a genetic algorithm where the "mutation" is done by an LLM reasoning about real failures instead of random edits, and "selection" preserves diversity instead of collapsing to one winner too early.
+
+### The genetic algorithm mapping
+
+| GA concept | GEPA's version |
+|---|---|
+| Population | A pool of prompt variants tracked simultaneously |
+| Individual / genome | A single prompt (its text is the "DNA") |
+| Fitness | The LLM judge's score on a batch of test cases |
+| Mutation | An LLM rewriting the prompt, guided by judge feedback on failures |
+| Selection | Sampling a parent from the current Pareto front (see below) |
+| Offspring | The new, rewritten prompt |
+| Survival | The offspring replaces its parent only if it doesn't score worse |
+
+### The loop, step by step
+
+1. **Evaluate.** Run the current prompt against every test case through the task model, and score each output with the LLM judge (`SCORE: 0–100` + written `FEEDBACK`).
+2. **Build a reflective dataset.** Collect `{input, output, score, feedback}` for every test case — the judge's actual written critique, not just the number.
+3. **Reflect.** A reflection model (often a stronger model than the task model) is shown the current prompt plus that batch of input/output/feedback records, and asked to rewrite the prompt to fix the observed failures. This is a targeted rewrite grounded in real evidence, not a generic "make this better" request.
+4. **Verify.** The new prompt is re-run and re-scored on the test set. It's only kept if it doesn't regress relative to its parent — the system never just trusts the LLM's claim that a rewrite is an improvement.
+5. **Select the next parent — Pareto-aware, not "just pick the highest average."** This is the "P" in GEPA. Instead of keeping a single best-scoring prompt, GEPA tracks the **Pareto front**: every prompt that is uniquely the best at *some* test case, even if its overall average is lower. For example:
+
+   | Prompt | Test A | Test B | Test C | Test D | Average |
+   |---|---|---|---|---|---|
+   | P1 | 90 | 90 | 40 | 40 | 65 |
+   | P2 | 40 | 40 | 95 | 95 | 67.5 |
+   | P3 | 60 | 60 | 60 | 60 | 60 |
+
+   Ranking by average alone would keep P2 and discard P1 — but P1 is the best possible prompt for cases A and B. Both P1 and P2 sit on the Pareto front (each dominates somewhere) and stay eligible as parents; P3 is dominated everywhere and is dropped. This preserves "specialist" prompts whose strengths could still be useful in a later mutation, instead of prematurely narrowing to one lineage.
+6. **Repeat** until a evaluation budget is exhausted, then return the best-scoring candidate found.
+
+### Why this beats a single "hey LLM, improve this prompt" request
+
+- **Grounded, not guessed.** The rewrite step is shown concrete failure evidence (real inputs, real outputs, the judge's actual critique) rather than being asked to improve a prompt in the abstract.
+- **Verified, not trusted.** Every proposed rewrite is re-tested and re-scored; it's discarded if it doesn't measurably help.
+- **Diversity-preserving.** By keeping the Pareto front instead of a single best-average candidate, GEPA avoids losing prompts that hold the key to fixing a specific weakness, simply because their overall score was lower.
+- **Repeated automatically.** The evaluate → reflect → verify → select cycle runs for many iterations against a real budget, rather than the 2–3 manual rounds a person might try in a chat.
 
 ## Tech Stack
 
